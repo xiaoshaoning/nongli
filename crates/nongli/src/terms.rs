@@ -19,7 +19,7 @@ const DEG_PER_TERM: f64 = 15.0;
 ///
 /// [`term_index`] 与 [`crate::calendar::winter_solstice`] 都由它导出，
 /// 因此"冬至是第 0 个节气"这个约定只存在一处。
-pub const WINTER_SOLSTICE_LONGITUDE: f64 = 270.0;
+pub(crate) const WINTER_SOLSTICE_LONGITUDE: f64 = 270.0;
 
 /// 太阳视黄经等于 `15·j` 度 (mod 360) 的时刻。
 ///
@@ -42,7 +42,7 @@ pub fn solar_term_index_near(t: Instant) -> i64 {
 
 /// 节气序号 `j` 在 [`TERM_NAMES`] 中的下标：0 = 冬至。
 #[inline]
-pub fn term_index(j: i64) -> usize {
+pub(crate) fn term_index(j: i64) -> usize {
     (j - (WINTER_SOLSTICE_LONGITUDE / DEG_PER_TERM) as i64).rem_euclid(24) as usize
 }
 
@@ -50,7 +50,7 @@ pub fn term_index(j: i64) -> usize {
 ///
 /// 中气的黄经为 30° 的整数倍，对应偶数 `j` (3.14)。置闰规则 4.4 只关心中气。
 #[inline]
-pub fn is_mid_term(j: i64) -> bool {
+pub(crate) fn is_mid_term(j: i64) -> bool {
     j.rem_euclid(2) == 0
 }
 
@@ -61,7 +61,7 @@ pub(crate) fn term_range(jdn_lo: i64, jdn_hi: i64) -> core::ops::RangeInclusive<
 }
 
 /// 北京时间日 `jdn` 上若有节气，返回其名称。
-pub fn solar_term_on(jdn: i64) -> Option<&'static str> {
+pub(crate) fn solar_term_on(jdn: i64) -> Option<&'static str> {
     term_range(jdn, jdn)
         .find(|&j| beijing_jdn(solar_term(j)) == jdn)
         .map(|j| TERM_NAMES[term_index(j)])

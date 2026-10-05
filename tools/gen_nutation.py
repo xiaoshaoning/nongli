@@ -89,9 +89,9 @@ def main():
     L.append('///')
     L.append('/// 这里用元组而非结构体是**有意的**：这是生成的数据表，1365 行每行都写字段名')
     L.append('/// 会把文件撑大十倍，而唯一的消费处是一句解构——名字就在那里。')
-    L.append('pub type NutLsTerm = (i8, i8, i8, i8, i8, f64, f64, f64, f64, f64, f64);')
+    L.append('pub(crate) type NutLsTerm = (i8, i8, i8, i8, i8, f64, f64, f64, f64, f64, f64);')
     L.append('')
-    L.append('pub static NUT_LS: &[NutLsTerm] = &[')
+    L.append('pub(crate) static NUT_LS: &[NutLsTerm] = &[')
     for r in ls:
         L.append('    ({}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}),'.format(
             *(int(x) for x in r[:5]), *(repr(x) for x in r[5:])))
@@ -99,9 +99,9 @@ def main():
     L.append('')
     L.append('/// 行星章动一项：`(nl, nf, nd, nom, nme, nve, nea, nma, nju, nsa, nur, nne,')
     L.append('/// npa, sp, cp, ce, se)`——前 13 个是引数乘子，后 4 个是系数。')
-    L.append('pub type NutPlTerm = (i8, i8, i8, i8, i8, i8, i8, i8, i8, i8, i8, i8, i8, f64, f64, f64, f64);')
+    L.append('pub(crate) type NutPlTerm = (i8, i8, i8, i8, i8, i8, i8, i8, i8, i8, i8, i8, i8, f64, f64, f64, f64);')
     L.append('')
-    L.append('pub static NUT_PL: &[NutPlTerm] = &[')
+    L.append('pub(crate) static NUT_PL: &[NutPlTerm] = &[')
     for r in pl:
         L.append('    ({}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}),'.format(
             *(int(x) for x in r[:13]), *(repr(x) for x in r[13:])))

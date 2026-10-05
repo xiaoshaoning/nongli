@@ -49,22 +49,22 @@ pub(crate) mod frames_tables;
 #[allow(clippy::approx_constant)]
 pub(crate) mod nutation_tables;
 
-// D2R/R2D 有真实消费者（moon crate 里到处要用），故对外导出。
-pub use angle::{D2R, R2D};
+// R2D 有真实消费者（moon crate 用 4 处），故对外导出。D2R 没有——已收成 pub(crate)。
 pub use frames::{
     mean_obliquity, nutation, true_obliquity, ApparentEcliptic, Ecliptic, Equatorial, Nutation,
 };
+pub use angle::R2D;
 pub use observer::{gast, gmst, Atmosphere, Horizontal, Observer};
 pub use moon::{
     libration, moon_apparent_longitude, moon_geocentric, new_moon, new_moon_index_near, Libration,
 };
 pub use sun::{
-    sun_aberration_deg, sun_apparent_longitude, sun_distance_au, sun_geometric_longitude,
+    sun_apparent_longitude, sun_distance_au, sun_geometric_longitude,
     sun_longitude_at,
     MEAN_LONGITUDE_AT_J2000_DEG,
     MEAN_MOTION_DEG_PER_DAY,
 };
 pub use time::{
-    delta_t_seconds, jd_from_jdn, jdn_from_jd, jdn_from_ymd, jdn_in_offset, ymd_from_jdn, Calendar,
+    delta_t_seconds, jd_from_jdn, jdn_from_ymd, jdn_in_offset, ymd_from_jdn, Calendar,
     DateTime, Instant, J2000,
 };

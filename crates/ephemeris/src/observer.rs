@@ -125,7 +125,7 @@ impl Observer {
     /// 参数是 **GAST**（度）而不是 [`Instant`]：GAST 要算一次 IAU 2000A 章动
     /// （~11 µs），而一次地平坐标换算里要用到它三次（观测者位置、观测者速度、时角）。
     /// 让调用方一次算好传进来，就不会重复。见 [`Equatorial::horizontal`]。
-    pub fn geocentric_km(&self, gast_deg: f64) -> [f64; 3] {
+    fn geocentric_km(&self, gast_deg: f64) -> [f64; 3] {
         let [x, y, z] = self.geocentric_fixed_km();
         let th = gast_deg * D2R;
         let (sth, cth) = th.sin_cos();
@@ -160,8 +160,8 @@ impl Equatorial {
     /// 同上，但 GAST 由调用方给定。**不需要** `Instant`——GAST 之后的步骤都与时间无关。
     ///
     /// 求 GAST 要算一次 IAU 2000A 章动（~11 µs）。调用方若在同一个瞬间还要拿 GAST
-    /// 做别的事（例如求时角），自己算一次传进来就省下一遍。理由同
-    /// [`Observer::geocentric_km`]。
+    /// 做别的事（例如求时角），自己算一次传进来就省下一遍。`Observer` 内部那两个
+    /// 辅助方法（地心矢量、观测者速度）也是同一个理由改收 GAST。
     pub fn horizontal_at(
         self,
         gast_deg: f64,

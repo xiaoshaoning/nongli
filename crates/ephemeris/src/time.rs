@@ -70,7 +70,7 @@ pub fn jd_from_jdn(jdn: i64) -> f64 {
 
 /// 儒略日 → 该瞬间所在的日编号。
 #[inline]
-pub fn jdn_from_jd(jd: f64) -> i64 {
+pub(crate) fn jdn_from_jd(jd: f64) -> i64 {
     (jd + 0.5).floor() as i64
 }
 

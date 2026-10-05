@@ -252,7 +252,7 @@ def emit(prec, res):
     for name in ['EPSA']:
         c = prec[name]
         L.append(f'/// `{name}` 的多项式系数，角秒，T 的降幂 (T⁵ … T⁰)。')
-        L.append(f'pub static {name}: [f64; 6] = [')
+        L.append(f'pub(crate) static {name}: [f64; 6] = [')
         for v in c:
             L.append(f'    {float(v / AS2R)!r},')
         L.append('];')

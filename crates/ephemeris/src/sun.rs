@@ -73,7 +73,7 @@ pub fn sun_geometric_longitude(t: Instant) -> f64 {
 ///
 /// 单独拆出来是因为"朔"的判定要用它：章动 Δψ 对日月是同一个量、作差时**精确抵消**，
 /// 但光行差只作用于太阳，不抵消。见 [`new_moon`](crate::new_moon)。
-pub fn sun_aberration_deg(t: Instant) -> f64 {
+pub(crate) fn sun_aberration_deg(t: Instant) -> f64 {
     -20.4898 / earth_heliocentric(t.tt_jd()).2 / 3600.0
 }
 

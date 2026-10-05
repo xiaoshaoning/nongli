@@ -4,19 +4,19 @@
 //! [`newton`] 是 crate 内部的时间求根器。所有角度均为**度**。
 
 /// 度 → 弧度。
-pub const D2R: f64 = core::f64::consts::PI / 180.0;
+pub(crate) const D2R: f64 = core::f64::consts::PI / 180.0;
 /// 弧度 → 度。
 pub const R2D: f64 = 180.0 / core::f64::consts::PI;
 
 /// 归化到 [0, 360)。
 #[inline]
-pub fn norm360(x: f64) -> f64 {
+pub(crate) fn norm360(x: f64) -> f64 {
     x.rem_euclid(360.0)
 }
 
 /// 归化到 (−180, 180]。
 #[inline]
-pub fn norm180(x: f64) -> f64 {
+pub(crate) fn norm180(x: f64) -> f64 {
     let y = x.rem_euclid(360.0);
     if y > 180.0 {
         y - 360.0

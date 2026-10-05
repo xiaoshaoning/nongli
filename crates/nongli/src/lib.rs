@@ -48,7 +48,7 @@ pub mod terms;
 /// 标准 4.1：农历以北京时间为准（东经 120° 标准时）。
 ///
 /// 这是**农历的政策**，因此留在本 crate；`ephemeris` 不预设任何时区。
-pub const BEIJING_OFFSET_HOURS: f64 = 8.0;
+pub(crate) const BEIJING_OFFSET_HOURS: f64 = 8.0;
 
 /// 某个瞬间落在哪一个**农历日**（北京时间的日编号）。
 ///
@@ -59,13 +59,9 @@ pub fn beijing_jdn(t: Instant) -> i64 {
     t.jdn_in_offset(BEIJING_OFFSET_HOURS)
 }
 
-pub use calendar::{lunar_from_jdn, new_moon_on_or_before, winter_solstice, winter_solstice_jdn,
-                   LunarDate, NewMoon};
-pub use names::{day_name, ganzhi, GAN, MONTH_NAMES, TERM_NAMES, ZHI, ZODIAC};
+pub use calendar::{new_moon_on_or_before, winter_solstice_jdn, LunarDate, NewMoon};
+pub use names::{day_name, TERM_NAMES};
 // 这两个出现在本 crate 公开函数的签名里。调用方不该为了能写出参数类型而额外
 // 依赖 `ephemeris`；其余星历接口请直接用 `ephemeris`。
 pub use ephemeris::{Calendar, DateTime, Instant};
-pub use terms::{
-    is_mid_term, solar_term, solar_term_index_near, solar_term_on, solar_terms_between, term_index,
-    WINTER_SOLSTICE_LONGITUDE,
-};
+pub use terms::{solar_term, solar_term_index_near, solar_terms_between};

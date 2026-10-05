@@ -69,7 +69,7 @@ pub fn new_moon_on_or_before(jdn: i64) -> NewMoon {
 ///
 /// 初值取该年 12 月 22 日的民用日编号当作 TT——它只是给求根器的起点，
 /// 与真实 TT 相差 ΔT (分钟量级) 完全不影响收敛。
-pub fn winter_solstice(greg_year: i64) -> Instant {
+pub(crate) fn winter_solstice(greg_year: i64) -> Instant {
     let approx = Instant::from_tt(jd_from_jdn(jdn_from_ymd(
         greg_year,
         12,
@@ -102,7 +102,7 @@ fn month_number(i: usize, leap_idx: Option<usize>) -> (u8, bool) {
 }
 
 /// 由北京时间日编号 JDN 求农历日期。
-pub fn lunar_from_jdn(jdn: i64) -> LunarDate {
+pub(crate) fn lunar_from_jdn(jdn: i64) -> LunarDate {
     let (gy, _, _) = ymd_from_jdn(jdn, Calendar::Gregorian);
 
     // 定位所属的"岁"：从含冬至的十一月到下一个含冬至的十一月(不含)。

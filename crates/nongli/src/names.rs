@@ -1,13 +1,13 @@
 //! GB/T 33661-2017 第 6 章的命名方法：干支、生肖、月名、日名。
 
 /// 天干。
-pub const GAN: [&str; 10] = ["甲", "乙", "丙", "丁", "戊", "己", "庚", "辛", "壬", "癸"];
+pub(crate) const GAN: [&str; 10] = ["甲", "乙", "丙", "丁", "戊", "己", "庚", "辛", "壬", "癸"];
 /// 地支。
-pub const ZHI: [&str; 12] = [
+pub(crate) const ZHI: [&str; 12] = [
     "子", "丑", "寅", "卯", "辰", "巳", "午", "未", "申", "酉", "戌", "亥",
 ];
 /// 生肖 (与地支一一对应)。
-pub const ZODIAC: [&str; 12] = [
+pub(crate) const ZODIAC: [&str; 12] = [
     "鼠", "牛", "虎", "兔", "龙", "蛇", "马", "羊", "猴", "鸡", "狗", "猪",
 ];
 /// 二十四节气，自冬至起 (附录 A)。
@@ -17,7 +17,7 @@ pub const TERM_NAMES: [&str; 24] = [
     "霜降", "立冬", "小雪", "大雪",
 ];
 /// 数序纪月 (6.2)。
-pub const MONTH_NAMES: [&str; 12] = [
+pub(crate) const MONTH_NAMES: [&str; 12] = [
     "正月", "二月", "三月", "四月", "五月", "六月", "七月", "八月", "九月", "十月",
     "十一月", "十二月",
 ];
@@ -25,7 +25,7 @@ pub const MONTH_NAMES: [&str; 12] = [
 const DIGITS: [&str; 10] = ["一", "二", "三", "四", "五", "六", "七", "八", "九", "十"];
 
 /// 六十干支名，`i` 取模 60，0 = 甲子。
-pub fn ganzhi(i: i64) -> String {
+pub(crate) fn ganzhi(i: i64) -> String {
     let i = i.rem_euclid(60) as usize;
     format!("{}{}", GAN[i % 10], ZHI[i % 12])
 }

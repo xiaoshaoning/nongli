@@ -24,7 +24,7 @@ OUT = os.path.join(HERE, os.pardir, 'crates', 'ephemeris', 'src', 'tables.rs')
 
 
 def vsop(name, terms):
-    lines = [f'pub static {name}: &[(f64, f64, f64)] = &[']
+    lines = [f'pub(crate) static {name}: &[(f64, f64, f64)] = &[']
     for a, b, c in terms:
         lines.append(f'    ({a!r}, {b!r}, {c!r}),')
     lines.append('];')
@@ -32,7 +32,7 @@ def vsop(name, terms):
 
 
 def moon_lon(name, terms):
-    lines = [f'pub static {name}: &[(i8, i8, i8, i8, i32, i32)] = &[']
+    lines = [f'pub(crate) static {name}: &[(i8, i8, i8, i8, i32, i32)] = &[']
     for d, m, mp, f, l, r in terms:
         lines.append(f'    ({d}, {m}, {mp}, {f}, {l}, {r}),')
     lines.append('];')
@@ -40,7 +40,7 @@ def moon_lon(name, terms):
 
 
 def moon_lat(name, terms):
-    lines = [f'pub static {name}: &[(i8, i8, i8, i8, i32)] = &[']
+    lines = [f'pub(crate) static {name}: &[(i8, i8, i8, i8, i32)] = &[']
     for d, m, mp, f, b in terms:
         lines.append(f'    ({d}, {m}, {mp}, {f}, {b}),')
     lines.append('];')
