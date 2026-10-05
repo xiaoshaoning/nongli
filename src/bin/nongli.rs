@@ -188,19 +188,36 @@ fn main() {
     }
 }
 
+/// `--help` 的正文；末尾的二十四节气表由 [`print_help`] 追加。
+const HELP: &str = "nongli —— 中国农历 (GB/T 33661-2017)
+
+用法:
+  nongli <公历日期>[T时刻] ...   换算农历（默认北京时间）
+  nongli --year  <年>            打印全年公历/农历对照与节气
+  nongli --sui   <年>            打印该岁各月与置闰
+  nongli --terms <年>            打印全年二十四节气
+
+选项:
+  --utc     输入按 UTC 解释
+  --julian  输入按儒略历解释（输出仍为公历，见下例）
+  -h, --help  显示本帮助
+
+示例:
+  nongli 2026-02-17              农历、干支、生肖；当天有节气也会列出
+  nongli 2024-04-04              当天节气：清明
+  nongli 2026-02-17T23:59:59     带时刻，按北京时间
+  nongli --utc 2026-02-17T17:00  按 UTC 输入（北京 02-18 01:00）
+  nongli --julian 1500-01-01     按儒略历输入
+  nongli 2026-02-17 2033-12-22   一次换算多个日期
+  nongli -1974-06-01             负年份为天文纪年（0 = 公元前 1 年）
+  nongli --year 2026             全年公历/农历对照，节气标 ★
+  nongli --terms 2026            只列全年二十四节气
+  nongli --sui 2033              该岁各月与置闰判定
+
+二十四节气: ";
+
 fn print_help() {
-    println!(
-        "nongli —— 中国农历 (GB/T 33661-2017)\n\
-         \n\
-         用法:\n\
-         \x20 nongli <公历日期>[T时刻] ...   换算农历 (默认北京时间)\n\
-         \x20 nongli --year  <年>            打印全年公农历对照与节气\n\
-         \x20 nongli --sui   <年>            打印该岁各月与置闰\n\
-         \x20 nongli --terms <年>            打印全年二十四节气\n\
-         \n\
-         选项:\n\
-         \x20 --utc     输入按 UTC 解释\n\
-         \x20 --julian  输入按儒略历解释"
-    );
-    println!("\n二十四节气: {}", TERM_NAMES.join(" "));
+    print!("{HELP}");
+    println!("{}", TERM_NAMES.join(" "));
 }
+
