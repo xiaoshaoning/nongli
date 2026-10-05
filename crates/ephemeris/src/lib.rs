@@ -41,7 +41,10 @@ pub(crate) mod angle;
 #[allow(clippy::approx_constant)]
 pub(crate) mod tables;
 
-pub use frames::Ecliptic;
+#[allow(clippy::approx_constant)]
+pub(crate) mod frames_tables;
+
+pub use frames::{mean_obliquity, nutation, true_obliquity, Ecliptic, Equatorial, Nutation};
 pub use moon::{moon_apparent_longitude, moon_geocentric, new_moon, new_moon_index_near};
 pub use sun::{
     sun_apparent_longitude, sun_longitude_at, MEAN_LONGITUDE_AT_J2000_DEG,

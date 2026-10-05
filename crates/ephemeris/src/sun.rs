@@ -2,7 +2,7 @@
 //!
 //! 输出参考**真**分点（视黄经），可直接用于比较与求根。
 
-use crate::frames::nutation_longitude;
+use crate::frames::nutation;
 use crate::angle::{norm180, norm360, newton, D2R, R2D};
 use crate::tables::*;
 use crate::time::{Instant, J2000};
@@ -58,15 +58,15 @@ pub(crate) fn earth_heliocentric(jde_tt: f64) -> (f64, f64, f64) {
 pub fn sun_apparent_longitude(t: Instant) -> f64 {
     let jde_tt = t.tt_jd();
     let (l, b, r) = earth_heliocentric(jde_tt);
-    let t = (jde_tt - J2000) / 36525.0;
+    let tc = (jde_tt - J2000) / 36525.0;
     let theta = l + core::f64::consts::PI;
     // VSOP87 → FK5 改正
-    let lp = theta - (1.397 * t + 0.00031 * t * t) * D2R;
+    let lp = theta - (1.397 * tc + 0.00031 * tc * tc) * D2R;
     let dlam = (-0.09033 + 0.03916 * (lp.cos() + lp.sin()) * b.tan()) / 3600.0;
     let theta = theta * R2D + dlam;
     // 周年光行差
     let aber = -20.4898 / r / 3600.0;
-    norm360(theta + aber + nutation_longitude(jde_tt))
+    norm360(theta + aber + nutation(t).dpsi_deg)
 }
 
 /// 太阳视黄经等于 `target_deg` 的时刻。
