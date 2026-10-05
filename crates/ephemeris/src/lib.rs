@@ -53,8 +53,7 @@ pub use frames::{
 };
 pub use observer::{gast, gmst, Atmosphere, Horizontal, Observer};
 pub use moon::{
-    libration, libration_from_direction, moon_apparent_longitude, moon_geocentric, new_moon,
-    new_moon_index_near, Libration,
+    libration, moon_apparent_longitude, moon_geocentric, new_moon, new_moon_index_near, Libration,
 };
 pub use sun::{
     sun_apparent_longitude, sun_distance_au, sun_geometric_longitude, sun_longitude_at,

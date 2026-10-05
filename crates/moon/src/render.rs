@@ -17,10 +17,8 @@
 //! `i = 180°`（朔）时是 +√(1−v²)，只剩右边缘一条线，等于全暗；
 //! `i = 90°`（弦）时右端为 0，正好一半。中间就是月牙与凸月。
 //!
-//! 亮边方向由 [`MoonPhase::bright_limb_deg`] 给出（自北起向东为正），
+//! 亮边方向由 [`MoonPhase::bright_limb_deg`](crate::MoonPhase::bright_limb_deg) 给出（自北起向东为正），
 //! 屏幕取"北在上、东在左"的天文习惯，故该方向的单位向量为 `(−sin χ, cos χ)`。
-
-use crate::MoonPhase;
 
 /// 背景（天空）。
 const SKY: char = ' ';
@@ -31,9 +29,16 @@ const LIT: char = '█';
 
 /// 把月相画成一个字符网格。
 ///
-/// `cols` 是横向字符数；纵向行数取一半——终端字符高约为宽的两倍，这样月亮才是圆的。
-/// 返回的行**不含**换行，行尾也没有填充空格。
-pub fn render(phase: &MoonPhase, cols: usize) -> Vec<String> {
+/// 画一个圆盘只需要两个数，所以就要两个数——早先要传整个 [`MoonPhase`](crate::MoonPhase)，
+/// 结果是测试不得不**伪造四个用不到的字段**（月龄、距离、视直径、天平动）。
+/// 依赖越窄，能测的地方越多。
+///
+/// * `phase_angle_deg` —— 相位角 i，度（0 = 望、180 = 朔）
+/// * `bright_limb_deg` —— 亮边方位角 χ，度，自北向东
+/// * `cols` —— 横向字符数；纵向行数取一半（终端字符高约为宽的两倍，这样才是圆的）
+///
+/// 返回的行**不含**换行；行尾没有填充空格。
+pub fn render(phase_angle_deg: f64, bright_limb_deg: f64, cols: usize) -> Vec<String> {
     let cols = cols.max(8);
     let rows = (cols / 2).max(4);
     // x 与 y 要**各自**归一到半径 1：网格是 cols × cols/2 个字符，而终端字符
@@ -44,8 +49,8 @@ pub fn render(phase: &MoonPhase, cols: usize) -> Vec<String> {
     let cx = (cols as f64 - 1.0) / 2.0;
     let cy = (rows as f64 - 1.0) / 2.0;
 
-    let cos_i = phase.phase_angle_deg.to_radians().cos();
-    let chi = phase.bright_limb_deg.to_radians();
+    let cos_i = phase_angle_deg.to_radians().cos();
+    let chi = bright_limb_deg.to_radians();
     let (s_chi, c_chi) = chi.sin_cos();
 
     let mut out = Vec::with_capacity(rows);
@@ -97,21 +102,11 @@ fn lit_fraction(lines: &[String]) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::MoonPhase;
 
-    fn phase(illuminated: f64, bright_limb_deg: f64) -> MoonPhase {
-        // phase_angle 由照亮比例反推：k = (1+cos i)/2
+    /// 照亮比例 k → 相位角 i（k = (1+cos i)/2），再渲染。
+    fn draw(illuminated: f64, bright_limb_deg: f64, cols: usize) -> Vec<String> {
         let i = (2.0 * illuminated - 1.0).clamp(-1.0, 1.0).acos().to_degrees();
-        MoonPhase {
-            phase_angle_deg: i,
-            illuminated,
-            age_days: 0.0,
-            waxing: true,
-            bright_limb_deg,
-            distance_km: 384_400.0,
-            angular_diameter_deg: 0.0,
-            libration: ephemeris::Libration { lon_deg: 0.0, lat_deg: 0.0 },
-        }
+        render(i, bright_limb_deg, cols)
     }
 
     /// 渲染出来的被照亮像素比例必须与照亮比例相符。
@@ -122,7 +117,7 @@ mod tests {
     fn rendered_area_matches_illuminated_fraction() {
         for k in [0.0, 0.05, 0.25, 0.5, 0.75, 0.95, 1.0] {
             for chi in [0.0, 45.0, 90.0, 180.0, 270.0] {
-                let lines = render(&phase(k, chi), 80);
+                let lines = draw(k, chi, 80);
                 let got = lit_fraction(&lines);
                 // 像素化误差：圆周长 / 面积 量级，80 列时约百分之几
                 assert!(
@@ -136,13 +131,13 @@ mod tests {
     /// 四个几何点的直观形状。
     #[test]
     fn four_shapes() {
-        let full = render(&phase(1.0, 0.0), 40);
+        let full = draw(1.0, 0.0, 40);
         assert!(full.iter().all(|l| !l.contains(DARK)), "望应全亮");
-        let new = render(&phase(0.0, 0.0), 40);
+        let new = draw(0.0, 0.0, 40);
         assert!(new.iter().all(|l| !l.contains(LIT)), "朔应全暗");
         // 上下弦：恰好一半
         for chi in [90.0, 270.0] {
-            let q = lit_fraction(&render(&phase(0.5, chi), 80));
+            let q = lit_fraction(&draw(0.5, chi, 80));
             assert!((q - 0.5).abs() < 0.03, "弦 χ={chi}: {q}");
         }
     }
@@ -151,7 +146,7 @@ mod tests {
     #[test]
     fn bright_side_follows_position_angle() {
         // χ=90°（东，屏幕上为左）时，亮的是左半边
-        let lines = render(&phase(0.5, 90.0), 80);
+        let lines = draw(0.5, 90.0, 80);
         let w = lines.iter().map(|l| l.chars().count()).max().unwrap();
         let (mut left, mut right) = (0, 0);
         for l in &lines {
@@ -168,7 +163,7 @@ mod tests {
         assert!(left > right * 5, "χ=90° 应亮在左：左 {left} 右 {right}");
 
         // χ=270°（西，屏幕上为右）时反过来
-        let lines = render(&phase(0.5, 270.0), 80);
+        let lines = draw(0.5, 270.0, 80);
         let (mut left, mut right) = (0, 0);
         for l in &lines {
             for (i, c) in l.chars().enumerate() {
@@ -191,7 +186,7 @@ mod tests {
     #[test]
     fn disk_fills_the_grid_and_is_round() {
         let cols = 60;
-        let lines = render(&phase(1.0, 0.0), cols);
+        let lines = draw(1.0, 0.0, cols);
         let nonempty = lines.iter().filter(|l| !l.trim().is_empty()).count();
         let widest = lines.iter().map(|l| l.chars().count()).max().unwrap();
         let rows = cols / 2;

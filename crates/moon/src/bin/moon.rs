@@ -132,7 +132,7 @@ fn print_moment(t: Instant, observer: &Observer, atm: Option<Atmosphere>) {
         "天平动  月面经度 {:+.2}°  月面纬度 {:+.2}°",
         p.libration.lon_deg, p.libration.lat_deg
     );
-    for line in moon::render::render(p, 61) {
+    for line in moon::render::render(p.phase_angle_deg, p.bright_limb_deg, 61) {
         println!("  {line}");
     }
 

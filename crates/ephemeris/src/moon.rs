@@ -181,10 +181,14 @@ pub struct Libration {
 
 /// 由"观测者到月球"的**黄道方向**算月面中心经纬度。
 ///
+/// 私有：目前只有[`libration`]一个消费者。将来做**周日天平动**（观测者不在地心）
+/// 时会需要它——那时再公开，成本是一行。第 3 步就是在这个模式上栽过
+/// （`fukushima_williams`，靠"以后要用"留着，已删）。
+///
 /// `lon_deg` 用当日**平**分点起算的几何黄经——**不要**加章动。实测：Meeus 例 53.a
 /// 的 l' 是 −1.206°，加了 Δψ（该历元 16.6″）会得到 −1.201°，不加则 −1.2056°。
 /// 原因也说得通：Ω = L' − F 本身就在平分点体系里，两边必须同口径。
-pub fn libration_from_direction(lon_deg: f64, lat_deg: f64, t: Instant) -> Libration {
+fn libration_from_direction(lon_deg: f64, lat_deg: f64, t: Instant) -> Libration {
     use crate::angle::{norm180, D2R, R2D};
     /// 月球赤道对黄道的倾角（Cassini 定律），度。
     const I_DEG: f64 = 1.54242;
