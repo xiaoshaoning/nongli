@@ -158,16 +158,16 @@ pub fn equatorial(t: Instant) -> Equatorial {
 
 /// 观测月球：位置、地平坐标、相位。
 pub fn observe(t: Instant, observer: &Observer, atmosphere: Option<Atmosphere>) -> MoonObservation {
-    let ap = moon_geocentric(t).apparent(t);
-    let eq = ap.equatorial(t);
-    let _ = &ap;
+    // 位置只算一次，赤道坐标与相位都用它。
+    let geo = moon_geocentric(t);
+    let eq = geo.apparent(t).equatorial(t);
     MoonObservation {
         equatorial: eq,
         horizontal: eq.horizontal(t, observer, atmosphere),
-        // 相位用**几何**量：月球取平黄道（`moon_geocentric`），太阳取几何黄经。
+        // 相位用**几何**量：月球取平黄道（`geo`），太阳取几何黄经。
         // 两者同为当日的平分点、都不含光行差，三角形才是对的。
         phase: phase(
-            moon_geocentric(t),
+            geo,
             ephemeris::sun_geometric_longitude(t),
             ephemeris::sun_distance_au(t),
             t,
@@ -175,20 +175,17 @@ pub fn observe(t: Instant, observer: &Observer, atmosphere: Option<Atmosphere>) 
     }
 }
 
-/// 该时刻月球中心的**几何**地平高度，弧度（不含折射）。
-fn geometric_altitude(t: Instant, observer: &Observer) -> f64 {
-    equatorial(t)
-        .horizontal(t, observer, None)
-        .altitude_deg
-        .to_radians()
-}
-
-/// 该时刻月球的本地时角，弧度，归一到 (−π, π]。
-fn hour_angle(t: Instant, observer: &Observer) -> f64 {
+/// 由一个视赤道坐标出发算 `(几何地平高度, 本地时角)`，弧度。
+///
+/// 两者都要用同一时刻的月球位置，所以放在一起算——早先在扫描里分别调用，
+/// 每个采样点把月球位置算了两遍。
+fn altitude_and_hour_angle(eq: Equatorial, t: Instant, observer: &Observer) -> (f64, f64) {
+    let alt = eq.horizontal(t, observer, None).altitude_deg.to_radians();
     let last = (ephemeris::gast(t) + observer.lon_deg).to_radians();
-    (last - equatorial(t).ra_deg.to_radians() + core::f64::consts::PI)
+    let ha = (last - eq.ra_deg.to_radians() + core::f64::consts::PI)
         .rem_euclid(core::f64::consts::TAU)
-        - core::f64::consts::PI
+        - core::f64::consts::PI;
+    (alt, ha)
 }
 
 /// 找出 `t0` 起 24 小时内的出没与上中天。
@@ -199,26 +196,36 @@ fn hour_angle(t: Instant, observer: &Observer) -> f64 {
 ///
 /// 高纬地区月球可能一天不升或一天不落，对应字段就是 `None`。
 pub fn rise_set(t0: Instant, observer: &Observer) -> RiseSet {
-    const STEP_DAYS: f64 = 1.0 / 48.0; // 半小时
-    let n = (1.0 / STEP_DAYS).round() as i64;
-    let td = |i: i64| Instant::from_tt(t0.tt_jd() + i as f64 * STEP_DAYS);
+    const STEPS: i64 = 48; // 半小时一格
+    let td = |i: i64| Instant::from_tt(t0.tt_jd() + i as f64 / STEPS as f64);
+
+    // 扫描用同一个 Equatorial 同时得到高度与时角
+    let sample = |i: i64| {
+        let t = td(i);
+        let (a, h) = altitude_and_hour_angle(equatorial(t), t, observer);
+        (t, a, h)
+    };
+    let altitude_at = |t: Instant| altitude_and_hour_angle(equatorial(t), t, observer).0;
+    let hour_angle_at = |t: Instant| altitude_and_hour_angle(equatorial(t), t, observer).1;
 
     let mut rise = None;
     let mut set = None;
     let mut transit = None;
-    for i in 0..n {
-        let (a, b) = (td(i), td(i + 1));
-        let (fa, fb) = (geometric_altitude(a, observer), geometric_altitude(b, observer));
-        if fa <= 0.0 && fb > 0.0 {
-            rise = bisect(a, b, observer, true);
+    let mut prev = sample(0);
+    for i in 1..=STEPS {
+        let cur = sample(i);
+        let (pt, pa, ph) = prev;
+        let (ct, ca, ch) = cur;
+        if pa <= 0.0 && ca > 0.0 {
+            rise = Some(bisect(pt, ct, altitude_at));
         }
-        if fa >= 0.0 && fb < 0.0 {
-            set = bisect(a, b, observer, false);
+        if pa >= 0.0 && ca < 0.0 {
+            set = Some(bisect(pt, ct, altitude_at));
         }
-        let (ha, hb) = (hour_angle(a, observer), hour_angle(b, observer));
-        if ha < 0.0 && hb >= 0.0 {
-            transit = bisect_transit(a, b, observer);
+        if ph < 0.0 && ch >= 0.0 {
+            transit = Some(bisect(pt, ct, hour_angle_at));
         }
+        prev = cur;
     }
     RiseSet {
         rise,
@@ -227,13 +234,13 @@ pub fn rise_set(t0: Instant, observer: &Observer) -> RiseSet {
     }
 }
 
-/// 高度过零的二分求根。`rising` 指明过零方向，用于挑对那一侧。
-fn bisect(a: Instant, b: Instant, observer: &Observer, rising: bool) -> Option<Instant> {
+/// 二分求根：`f` 在 `a`、`b` 处异号。
+fn bisect<F: Fn(Instant) -> f64>(a: Instant, b: Instant, f: F) -> Instant {
     let (mut lo, mut hi) = (a.tt_jd(), b.tt_jd());
+    let flo = f(a);
     for _ in 0..60 {
         let mid = 0.5 * (lo + hi);
-        let f = geometric_altitude(Instant::from_tt(mid), observer);
-        if (f <= 0.0) == rising {
+        if (f(Instant::from_tt(mid)) <= 0.0) == (flo <= 0.0) {
             lo = mid;
         } else {
             hi = mid;
@@ -242,24 +249,7 @@ fn bisect(a: Instant, b: Instant, observer: &Observer, rising: bool) -> Option<I
             break;
         }
     }
-    Some(Instant::from_tt(0.5 * (lo + hi)))
-}
-
-/// 时角过零的二分求根。
-fn bisect_transit(a: Instant, b: Instant, observer: &Observer) -> Option<Instant> {
-    let (mut lo, mut hi) = (a.tt_jd(), b.tt_jd());
-    for _ in 0..60 {
-        let mid = 0.5 * (lo + hi);
-        if hour_angle(Instant::from_tt(mid), observer) < 0.0 {
-            lo = mid;
-        } else {
-            hi = mid;
-        }
-        if hi - lo < ROOT_TOL_DAYS {
-            break;
-        }
-    }
-    Some(Instant::from_tt(0.5 * (lo + hi)))
+    Instant::from_tt(0.5 * (lo + hi))
 }
 
 #[cfg(test)]
@@ -418,7 +408,7 @@ mod tests {
                 let diff = (sol.tt_jd() - t_root.tt_jd()).abs() * 86400.0;
                 assert!(diff < 1.0, "{label}: 两法相差 {diff} 秒");
                 // 根部高度确实过零
-                let h = geometric_altitude(t_root, &o).to_degrees() * 3600.0;
+                let h = altitude_and_hour_angle(equatorial(t_root), t_root, &o).0.to_degrees() * 3600.0;
                 assert!(h.abs() < 0.05, "{label}: 根部高度 {h}\"");
                 checked += 1;
             }
@@ -431,8 +421,8 @@ mod tests {
         let (mut a, mut b) = (guess.tt_jd() - 0.02, guess.tt_jd() + 0.02);
         for _ in 0..60 {
             let (fa, fb) = (
-                geometric_altitude(Instant::from_tt(a), o),
-                geometric_altitude(Instant::from_tt(b), o),
+                altitude_and_hour_angle(equatorial(Instant::from_tt(a)), Instant::from_tt(a), o).0,
+                altitude_and_hour_angle(equatorial(Instant::from_tt(b)), Instant::from_tt(b), o).0,
             );
             if (fb - fa).abs() < 1e-15 {
                 break;

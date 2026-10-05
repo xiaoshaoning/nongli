@@ -8,7 +8,7 @@
 //! moon --days 30                        连续 30 天的月相表
 //! ```
 
-use ephemeris::{Atmosphere, Calendar, DateTime, Instant, Observer, R2D};
+use ephemeris::{Atmosphere, Calendar, DateTime, Instant, Observer};
 use moon::{observe, rise_set};
 
 /// 默认地点：北京。
@@ -70,7 +70,7 @@ fn main() {
     };
     let t0 = when
         .map(|dt| to_instant(dt, utc))
-        .unwrap_or_else(now_beijing);
+        .unwrap_or_else(now_instant);
 
     println!(
         "地点 {:.4}°{}, {:.4}°{}, 海拔 {:.0} m",
@@ -128,7 +128,6 @@ fn print_moment(t: Instant, observer: &Observer, atm: Option<Atmosphere>) {
         p.angular_diameter_deg * 60.0,
         p.bright_limb_deg
     );
-    println!("        {}", render_disk(p));
 
     let rs = rise_set(t, observer);
     let f = |x: Option<Instant>| x.map(fmt_beijing).unwrap_or_else(|| "—".to_string());
@@ -140,40 +139,18 @@ fn print_moment(t: Instant, observer: &Observer, atm: Option<Atmosphere>) {
     );
 }
 
-/// 用 ASCII 画个粗略的月相，只为在终端里有个直观样子。
-fn render_disk(p: &moon::MoonPhase) -> String {
-    let k = p.illuminated;
-    let art = if k < 0.03 {
-        "●" // 朔
-    } else if k > 0.97 {
-        "○" // 望
-    } else if (k - 0.5).abs() < 0.03 {
-        if p.waxing {
-            "◐" // 上弦
-        } else {
-            "◑" // 下弦
-        }
-    } else if k < 0.5 {
-        if p.waxing {
-            "◔"
-        } else {
-            "◕"
-        }
-    } else if p.waxing {
-        "◕"
-    } else {
-        "◔"
-    };
-    format!("{art}  （照亮 {:.0}%）", k * 100.0)
-}
-
 /// 把 `Instant` 按北京时间写成 `YYYY-MM-DD HH:MM:SS`。
 fn fmt_beijing(t: Instant) -> String {
     let jd_bt = t.ut1_jd() + 8.0 / 24.0;
-    let jdn = (jd_bt + 0.5).floor() as i64;
-    let (y, m, d) = ephemeris::ymd_from_jdn(jdn, Calendar::Gregorian);
+    let mut jdn = (jd_bt + 0.5).floor() as i64;
     let frac = jd_bt + 0.5 - jdn as f64;
-    let secs = (frac * 86400.0).round() as i64;
+    let mut secs = (frac * 86400.0).round() as i64;
+    // 四舍五入可能正好进到 86400，要进位到次日，否则会打印出 "24:00:00"
+    if secs >= 86400 {
+        secs -= 86400;
+        jdn += 1;
+    }
+    let (y, m, d) = ephemeris::ymd_from_jdn(jdn, Calendar::Gregorian);
     format!(
         "{y:04}-{m:02}-{d:02} {:02}:{:02}:{:02}",
         secs / 3600,
@@ -219,7 +196,7 @@ fn to_instant(dt: DateTime, utc: bool) -> Instant {
 }
 
 /// 当前时刻。取系统时间（UTC），换算到 `Instant`。
-fn now_beijing() -> Instant {
+fn now_instant() -> Instant {
     let secs = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs_f64())
@@ -246,5 +223,4 @@ fn print_help() {
          \x20 moon --lat 51.5 --lon -0.13 --alt 11 2026-06-01T22:00\n\
          \x20 moon --days 30"
     );
-    let _ = R2D;
 }
