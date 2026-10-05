@@ -325,7 +325,7 @@ pub fn observe_moon(t: Instant, o: Observer, refraction: bool) -> MoonObservatio
 - [x] `crates/nongli`：`calendar.rs`、`names.rs`、新建 `terms.rs`、`bin/nongli.rs`
 - [x] 时区参数化：`tt_to_beijing_jdn` → `tt_to_jdn(jd_tt, utc_offset_hours)` +
       `jdn_in_offset`；`BEIJING_OFFSET_HOURS` 移到 `nongli`（它是农历的政策）
-- [x] `tools/gen_tables.py` 输出改到 `crates/ephemeris/src/tables.rs`
+- [x] `tools/gen_tables.py` 输出改到 `crates/ephemeris/src/tables.rs`（两者后来都被**删除**了：太阳表移入 `vsop87_tables.rs`、月球表移入 `elp2000_tables.rs`，见下）
 - [x] `tools/*.py`、`probe/*.py` 的 `cargo run` 加 `-p <crate>`；`examples/` 各归其位
 - [x] README / `docs/ambiguity.md` / `docs/plan.md` 路径同步
 
@@ -351,7 +351,7 @@ pub fn observe_moon(t: Instant, o: Observer, refraction: bool) -> MoonObservatio
 
 ### 第 2 步 — 月球的 λ、β、Δ（缝就位）✅ 已完成
 
-- [x] `tools/gen_tables.py` 加回月球黄纬表（表 47.B 的 60 项）
+- [x] `tools/gen_tables.py` 加回月球黄纬表（表 47.B 的 60 项）（该脚本后来删除）
 - [x] `moon_geocentric(t: Instant) -> Ecliptic`：黄经、**黄纬**、距离三列
       （用上了 `MOON_LON` 第 6 列 Σr，先前被 `_cr` 丢掉）
 - [x] 接口注释写明"缝的契约"五项（见下）
@@ -773,6 +773,9 @@ u ≥ −cos(i) · √(1 − v²)
 
 ### 太阳：换回 VSOP87D 原始系数（2026-10-05）✅
 
+> 本节与后面几节里的数字是**当时的实测记录**，用来说明"怎么判断、改了多少"；
+> 当前的精度数字一律以 `docs/accuracy.md` 为准。
+
 **做了什么。** 太阳的 VSOP87D 表原来取自 Meeus《Astronomical Algorithms》附录 III
 （195 项）。那份不是"截断得粗一点"，而是**转抄加重排**：L0 只留 64/559 项，而且
 **在 J2000 那一刻就与原始系数差 −0.24″**。改用 VSOP87 官方文件
@@ -944,7 +947,9 @@ ELP2000-82B 给的是**几何**位置；Meeus 那份截断级数倒是把月球�
 （`daydiff` 的"朔"从 1.30 s 变成 ~40 s），但那**不是我们变差**：
 
 > astropy 的 builtin 月球（= ERFA 的 `moon98` 一路）对 JPL DE421 的误差是
-> **中位 19.8″、最大 43.7″**。本实现是 0.044″/0.11″。
+> **20″ 量级**，本实现是 **0.04″ 量级**。（当时手抄的确切数字是 19.8″/43.7″，
+> 后来重测为 20.4″/44.5″ —— 正是"手抄必漂"的又一例。确切值见
+> `docs/accuracy.md`。）
 
 原来的 1.30 s 是"我们与参考犯同一类截断误差"的结果。现在我们的月球准了 450 倍，
 自然与那个粗参考分道扬镳。**月球相关的验收从此一律看 `tools/truthcheck.py`。**

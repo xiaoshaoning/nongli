@@ -17,13 +17,8 @@
   （ΔT 自身的不确定度是另一回事，见 `README.md` 的"适用范围"一节）。
 * 工具：`python tools/spec_check.py`（数据源 `crates/nongli/examples/spec_check.rs`）。
 
-| | 事件数 | 中位偏差 | 中位\|偏差\| | 最大\|偏差\| | 判据 ≤1 s |
-|---|---|---|---|---|---|
-| 朔 | 1856 | −0.096 s | 0.096 s | **0.221 s** | ✅ |
-| 节气 | 3600 | +0.145 s | 0.233 s | **0.604 s** | ✅ |
-
-分年代看没有趋势（朔 −0.055…−0.119 s，节气 −0.248…+0.408 s），说明这不是某个
-模型的系统性偏移，而是理论本身的残差。
+数字见 **[`docs/accuracy.md`](accuracy.md)**（唯一来源，`tools/gen_accuracy.py` 生成）：
+朔 ~0.2 s、节气 ~0.6 s，判据 1 s。
 
 > 标准 5.2 括注"不计及编算时尚未正式发布的闰秒"。本实现不处理闰秒，
 > 时间尺度用 TT ↔ UT1（经 ΔT），与闰秒无关。
@@ -80,12 +75,7 @@ Terrestrial Reference System and the Geocentric Celestial Reference System*，
 
 两者的差别有多大，对 JPL DE421 实测（`tools/truthcheck.py`，1900–2050）：
 
-| | 本实现 − DE421 中位\|差\| | 最大\|差\| |
-|---|---|---|
-| 太阳视黄经 | 0.0095″ | 0.025″ |
-| 月球视黄经 | 0.044″ | 0.11″ |
-| 月球视黄纬 | 0.011″ | 0.11″ |
-| 月地距离 | 0.019 km | 0.091 km |
+数字见 **[`docs/accuracy.md`](accuracy.md)**：太阳视黄经 ~0.01″、月球 ~0.04″。
 
 顺带一提：IERS Conventions 第 5 章的参考文献里就有
 **Chapront-Touzé & Chapront (1983), "The lunar ephemeris ELP 2000"**，

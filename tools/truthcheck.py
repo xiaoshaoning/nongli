@@ -15,6 +15,9 @@
 
 没有这个文件时本脚本会打印取法并正常退出（不算失败）。
 
+`measure()` 只算不印，`main()` 只印不算——`tools/gen_accuracy.py` 复用前者
+生成 `docs/accuracy.md`（精度数字的唯一来源）。
+
 用法:  python tools/truthcheck.py
 """
 import os
@@ -30,16 +33,22 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.join(HERE, os.pardir)
 KERNEL = os.path.join(ROOT, 'kernels', 'de421.bsp')
 AU_KM = 1.495978707e8
+C_KM_S = 299792.458
+ERAS = [(1900, 1925), (1925, 1950), (1950, 1975), (1975, 2000), (2000, 2025), (2025, 2050)]
 
 
-def main():
-    if not os.path.exists(KERNEL):
-        print(f'缺少 {KERNEL}——跳过对 JPL 真值的验收。取法见本脚本头部注释。')
-        return 0
+def wrap(x):
+    return (x + 180.0) % 360.0 - 180.0
+
+
+def measure(kernel=KERNEL):
+    """跑一遍全部比对。内核不存在时返回 None。"""
+    if not os.path.exists(kernel):
+        return None
 
     import erfa
     from jplephem.spk import SPK
-    K = SPK.open(KERNEL)
+    K = SPK.open(kernel)
 
     def earth(jd):
         return K[(0, 3)].compute(jd) + K[(3, 399)].compute(jd)
@@ -60,17 +69,13 @@ def main():
     moon_rows = np.array([[float(x) for x in l.split()[1:]]
                           for l in out.splitlines() if l.startswith('MOON')])
 
-    def wrap(x):
-        return (x + 180.0) % 360.0 - 180.0
-
     # === 太阳 ===
-    #
     # 主指标取**几何**黄经：DE421 的地心矢量经 erfa.ecm06 转到 IAU2006 当日平黄道，
     # 不含光行差与章动——两边同口径，验收不依赖我们自己的任何模型。
     jd = sun_rows[:, 0]
     d_geom = np.empty(len(jd))
-    d_sun = np.empty(len(jd))
-    d_dist = np.empty(len(jd))
+    d_app = np.empty(len(jd))
+    d_sdist = np.empty(len(jd))
     for i, j in enumerate(jd):
         g = sun(j) - earth(j)
         r = np.linalg.norm(g)
@@ -81,8 +86,8 @@ def main():
         lam_app = (lam_geom + erfa.nut06a(j, 0.0)[0] / np.pi * 180.0
                    - 20.4898 / (r / AU_KM) / 3600.0)
         d_geom[i] = wrap(sun_rows[i, 2] - lam_geom) * 3600.0
-        d_sun[i] = wrap(sun_rows[i, 1] - lam_app) * 3600.0
-        d_dist[i] = (sun_rows[i, 3] - r / AU_KM) * AU_KM
+        d_app[i] = wrap(sun_rows[i, 1] - lam_app) * 3600.0
+        d_sdist[i] = (sun_rows[i, 3] - r / AU_KM) * AU_KM
 
     # === 月球 ===
     # 我们的 moon_geocentric 给的是**视**位置：先在 t−τ 处取几何位置（光行时），
@@ -90,37 +95,103 @@ def main():
     jdm = moon_rows[:, 0]
     d_lon = np.empty(len(jdm))
     d_lat = np.empty(len(jdm))
-    d_km = np.empty(len(jdm))
+    d_mdist = np.empty(len(jdm))
     for i, j in enumerate(jdm):
         r = np.linalg.norm(moon(j) - earth(j))
-        tau = r / 299792.458 / 86400.0          # 天
-        js = j - tau
+        js = j - r / C_KM_S / 86400.0
         g = moon(js) - earth(js)
         w = erfa.ecm06(j, 0.0) @ (g / np.linalg.norm(g))
         lam = np.degrees(np.arctan2(w[1], w[0])) % 360.0
         # 周年光行差只与**地球绕日**的速度有关，所以用日地距离而不是月地距离
         # （这里曾写错过：用月地距离 0.0026 AU 代进去会得到 7900"）。
         r_sun = np.linalg.norm(sun(j) - earth(j))
-        lam -= 20.4898 / (r_sun / AU_KM) / 3600.0   # 与太阳同号（负）
+        lam -= 20.4898 / (r_sun / AU_KM) / 3600.0
         d_lon[i] = wrap(moon_rows[i, 1] - lam) * 3600.0
         d_lat[i] = (moon_rows[i, 2] - np.degrees(np.arcsin(w[2]))) * 3600.0
-        d_km[i] = moon_rows[i, 3] - r
+        d_mdist[i] = moon_rows[i, 3] - r
+
+    # === 顺带量一下"别人当月球真值"的那些东西到底有多准 ===
+    # 这一行以前是手抄在文档里的（19.8″ / 43.7″），抄错了不会有人知道。
+    builtin = _builtin_moon_error(K, earth, sun)
+
+    def stat(d):
+        return [float(np.median(d)), float(np.median(abs(d))), float(abs(d).max())]
 
     y = 1900.0 + (sun_rows[:, 0] - 2415020.5) / 365.25
-    print(f'对 JPL DE421（真值）· {len(jd)} 个时刻 · 1900–2050\n')
+    eras = []
+    for lo, hi in ERAS:
+        m = (y >= lo) & (y < hi)
+        eras.append((lo, hi, float(np.median(d_geom[m])),
+                     float(np.median(d_lon[m])), float(np.median(d_mdist[m]))))
+    return {
+        'n': len(jd),
+        'kernel': os.path.basename(kernel),
+        'kernel_span': (float(K.segments[0].start_jd), float(K.segments[0].end_jd)),
+        'sun_geom': stat(d_geom),
+        'sun_app': stat(d_app),
+        'sun_dist': stat(d_sdist),
+        'moon_lon': stat(d_lon),
+        'moon_lat': stat(d_lat),
+        'moon_dist': stat(d_mdist),
+        'builtin_moon': builtin,
+        'eras': eras,
+    }
+
+
+def _builtin_moon_error(K, earth, sun, n=400):
+    """astropy 的 builtin 月球（ERFA moon98 一路）对 DE421 的黄经误差，角秒。"""
+    try:
+        from astropy.coordinates import (
+            GeocentricTrueEcliptic, get_body, solar_system_ephemeris,
+        )
+        from astropy.time import Time
+    except ImportError:
+        return None
+    solar_system_ephemeris.set('builtin')
+    jds = np.linspace(K.segments[0].start_jd + 100, K.segments[0].end_jd - 100, n)
+    errs = []
+    for j in jds:
+        t = Time(j, format='jd', scale='tt')
+        a = get_body('moon', t).transform_to(GeocentricTrueEcliptic(equinox=t)).lon.deg
+        g = K[(0, 3)].compute(j) + K[(3, 301)].compute(j) - earth(j)
+        r = np.linalg.norm(g)
+        w = __import__('erfa').ecm06(j, 0.0) @ (g / r)
+        lam = np.degrees(np.arctan2(w[1], w[0])) % 360.0
+        r_sun = np.linalg.norm(sun(j) - earth(j))
+        lam -= 20.4898 / (r_sun / AU_KM) / 3600.0
+        errs.append(wrap(a - lam) * 3600.0)
+    e = np.array(errs)
+    return [float(np.median(abs(e))), float(abs(e).max())]
+
+
+def main():
+    m = measure()
+    if m is None:
+        print(f'缺少 {KERNEL}——跳过对 JPL 真值的验收。取法见本脚本头部注释。')
+        return 0
+
+    print(f'对 JPL {m["kernel"]}（真值）· {m["n"]} 个时刻 · 1900–2050\n')
     print(f'{"":10} {"中位":>10} {"中位|差|":>11} {"最大":>10}')
-    print(f'{"太阳几何黄经":12} {np.median(d_geom):+9.4f}" {np.median(abs(d_geom)):10.4f}" {abs(d_geom).max():9.4f}"')
-    print(f'{"太阳视黄经":12} {np.median(d_sun):+9.4f}" {np.median(abs(d_sun)):10.4f}" {abs(d_sun).max():9.4f}"   <- 辅助')
-    print(f'{"日地距离":10} {np.median(d_dist):+9.2f}  {np.median(abs(d_dist)):10.2f}  {abs(d_dist).max():9.2f} km')
-    print(f'{"月球黄经":10} {np.median(d_lon):+9.4f}" {np.median(abs(d_lon)):10.4f}" {abs(d_lon).max():9.4f}"')
-    print(f'{"月球黄纬":10} {np.median(d_lat):+9.4f}" {np.median(abs(d_lat)):10.4f}" {abs(d_lat).max():9.4f}"')
-    print(f'{"月地距离":10} {np.median(d_km):+9.3f}  {np.median(abs(d_km)):10.3f}  {abs(d_km).max():9.3f} km')
+    for name, key, dp, unit, note in [
+        ('太阳几何黄经', 'sun_geom', 4, '"', ''),
+        ('太阳视黄经', 'sun_app', 4, '"', '   <- 辅助'),
+        ('日地距离', 'sun_dist', 2, ' km', ''),
+        ('月球黄经', 'moon_lon', 4, '"', ''),
+        ('月球黄纬', 'moon_lat', 4, '"', ''),
+        ('月地距离', 'moon_dist', 3, ' km', ''),
+    ]:
+        med, mad, mx = m[key]
+        print(f'{name:12} {med:+9.{dp}f}{unit}  {mad:10.{dp}f}{unit}  {mx:9.{dp}f}{unit}{note}')
+
+    if m['builtin_moon']:
+        mad, mx = m['builtin_moon']
+        print(f'\n顺带：astropy builtin 月球（= ERFA moon98 一路）对同一真值的黄经'
+              f'：中位|差| {mad:.3f}"  最大 {mx:.3f}"')
+        print('      —— 所以它不能当月球的真值。')
 
     print('\n分年代（看有没有趋势——趋势意味着历元约定还没对上）：')
-    for lo, hi in [(1900, 1925), (1925, 1950), (1950, 1975), (1975, 2000), (2000, 2025), (2025, 2050)]:
-        m = (y >= lo) & (y < hi)
-        print(f'  {lo}-{hi}: 太阳几何 {np.median(d_geom[m]):+8.4f}"  月球 {np.median(d_lon[m]):+9.4f}"'
-              f'  月距 {np.median(d_km[m]):+8.3f} km')
+    for lo, hi, sg, ml, md in m['eras']:
+        print(f'  {lo}-{hi}: 太阳几何 {sg:+8.4f}"  月球 {ml:+9.4f}"  月距 {md:+8.3f} km')
 
     print('''
 读法：
@@ -128,11 +199,10 @@ def main():
   我们自己的模型。"太阳视黄经"那一行要在真值侧补光行差与章动，等于复刻了
   sun.rs 的口径，只能当辅助。
 * 太阳的残差应当**没有随年代的趋势**（J2000 处过零、向两侧线性增长就是
-  历元约定没对上，见 crates/ephemeris/src/frames.rs 的
-  `dynamical_to_iau2006_lon_offset_deg`）。剩下的是 VSOP87 相对 DE421 的理论差。
-* 月球现在由 Meeus 第 47 章那 60 项截断主导（第 7 步换 ELP2000-82B 就是冲它）。
+  历元约定没对上，见 crates/ephemeris/src/frames.rs）。剩下的是 VSOP87 相对
+  DE421 的理论差；月球则已换成 ELP2000-82B，残差只剩 0.0x"。
 * DE421 只到 2053，所以这里看不到 ±4000 年；那边两个理论都在外推，
-  真值得用 DE441。
+  真值得用 DE441（本机取不到，见 README）。
 ''')
     return 0
 

@@ -165,41 +165,28 @@ nongli --sui   <年>          打印一个"岁"的各月与置闰判定
 
 ## 精度
 
-**真值参照是 JPL 星历，不是 ERFA / astropy 的模型。** 后者自身就有可观的误差——
-astropy 的 builtin 月球（ERFA `moon98` 一路）对 JPL DE421 是**中位 19.8″、最大 43.7″**，
-而本实现是 0.044″。拿它当参考量不出我们的精度。
+**真值参照是 JPL 星历，不是 ERFA / astropy 的模型。** 后者自身就有可观的误差：
+astropy builtin 的月球对 JPL 是 20″ 量级，而本实现是 0.04″ 量级。
 
-实测（`python tools/truthcheck.py`，**JPL DE421**，1900–2050 共 10958 个时刻）：
+* 太阳视黄经 ~0.01″、月球视黄经 ~0.04″、月地距离 ~0.02 km（对 JPL 真值）
+* **GB/T 33661-2017 §5.2**（朔和节气的北京时间精度应达到 1 s）：达标，
+  朔 ~0.2 s、节气 ~0.6 s，余量 1.7–4.5 倍
 
-| | 中位\|差\| | 最大\|差\| |
-|---|---|---|
-| 太阳视黄经 | 0.0095″ | 0.025″ |
-| 月球视黄经 | 0.044″ | 0.11″ |
-| 月球视黄纬 | 0.011″ | 0.11″ |
-| 日地距离 | 0.76 km | 4.1 km |
-| 月地距离 | 0.019 km | 0.091 km |
+> 上面只给**量级**。确切数字与完整表格在
+> **[`docs/accuracy.md`](docs/accuracy.md)** —— 那是精度数字的**唯一来源**，
+> 由 `tools/gen_accuracy.py` 生成。本节原先手抄确切数字，已经漂过好几次
+> （最严重的一次落后整整一个第 7 步）。`tools/doccheck.py` 会校验这里的
+> 量级与生成值一致。
 
-理论本体：太阳用 VSOP87D（`VSOP87D.ear` 原始系数，1526–2526 内相对未截断级数
-0.0025″），月球用 ELP2000-82B（36 张表 3402 项）。参考系归算用 IAU 2006/2000A。
-两者相对 JPL 的残差已经小于"理论本身与 JPL 的差距"，再往下只有换 JPL 内核本体。
-
-### 标准 §5.2：朔和节气的北京时间精度应达到 1 s
-
-这是 GB/T 33661-2017 里唯一的定量要求。实测（`python tools/spec_check.py`，对 DE421）：
-
-| | 事件数 | 中位\|偏差\| | 最大\|偏差\| | 判据 |
-|---|---|---|---|---|
-| 朔 | 1856 | 0.096 s | **0.221 s** | ≤1 s ✅ |
-| 节气 | 3600 | 0.233 s | **0.604 s** | ≤1 s ✅ |
-
-两侧用**同一套 ΔT**，所以量到的是模型/理论的误差——正是 §5.2 所指。
-逐条符合性对照（含 §5.1）见 [`docs/compliance.md`](docs/compliance.md)。
+符合性逐条对照见 [`docs/compliance.md`](docs/compliance.md)。
 
 ### 复现方式
 
 ```bash
-python tools/truthcheck.py -p ephemeris   # 对 JPL 真值验太阳与月球（需 kernels/de421.bsp）
+python tools/truthcheck.py   # 对 JPL 真值验太阳与月球（需 kernels/de421.bsp）
 python tools/spec_check.py   # §5.2 的 1 s 判据
+python tools/gen_accuracy.py # 重新生成 docs/accuracy.md（精度数字的唯一来源）
+python tools/doccheck.py     # 查文档与代码的脱节（死路径、数字漂移）
 python tools/suncheck.py     # 太阳对 astropy（可看长跨度上两个模型怎么分离）
 python tools/mooncheck.py    # 月球 λ/β/Δ 对 erfa.moon98
 python tools/framecheck.py   # 章动/黄赤交角 对 ERFA 逐点比对
@@ -240,9 +227,9 @@ python tools/gen_nutation.py / gen_frames.py / gen_ecliptic_frame.py
 * 标准未规定公历的历史用法。库默认**外推公历**（1582-10-15 之前也按公历规则外推），
   可选 `Calendar::Julian` 用儒略历。
 * 闰秒不处理（标准 5.2 明确“不计及编算时尚未正式发布的闰秒”）。
-* **不要拿 `erfa.moon98` 或 astropy 的 builtin 当月球的真值。** 它们对 JPL 的误差是
-  中位 19.8″、最大 43.7″，而本实现是 0.044″/0.11″。`tools/mooncheck.py`、
-  `moonphasecheck.py`、`daydiff.py` 里的月球残差量的是**参考的**误差。
+* **不要拿 `erfa.moon98` 或 astropy 的 builtin 当月球的真值。** 它们对 JPL 的误差
+  是 **20″ 量级**，比本实现大三个数量级。`tools/mooncheck.py`、`moonphasecheck.py`、
+  `daydiff.py` 里的月球残差量的是**参考的**误差（确切数字见 `docs/accuracy.md`）。
 
 ## 目录
 
