@@ -37,7 +37,7 @@ pub mod observer;
 pub mod sun;
 pub mod time;
 
-pub(crate) mod angle;
+mod angle;
 
 // 级数中的相位常数形如 3.14 / 3.142，并非圆周率，clippy 的近似常数检查在此无意义。
 #[allow(clippy::approx_constant)]
@@ -46,11 +46,16 @@ pub(crate) mod tables;
 #[allow(clippy::approx_constant)]
 pub(crate) mod frames_tables;
 
-pub use frames::{mean_obliquity, nutation, true_obliquity, Ecliptic, Equatorial, Nutation};
+// D2R/R2D 有真实消费者（moon crate 里到处要用），故对外导出。
+pub use angle::{D2R, R2D};
+pub use frames::{
+    mean_obliquity, nutation, true_obliquity, ApparentEcliptic, Ecliptic, Equatorial, Nutation,
+};
 pub use observer::{gast, gmst, Atmosphere, Horizontal, Observer};
 pub use moon::{moon_apparent_longitude, moon_geocentric, new_moon, new_moon_index_near};
 pub use sun::{
-    sun_apparent_longitude, sun_longitude_at, MEAN_LONGITUDE_AT_J2000_DEG,
+    sun_apparent_longitude, sun_distance_au, sun_geometric_longitude, sun_longitude_at,
+    MEAN_LONGITUDE_AT_J2000_DEG,
     MEAN_MOTION_DEG_PER_DAY,
 };
 pub use time::{

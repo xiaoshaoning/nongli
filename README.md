@@ -192,6 +192,7 @@ python probe/dtreference.py     # ΔT 参考实现自检（与 crates/ephemeris/
 python tools/mooncheck.py       # 月球 λ/β/Δ 对 erfa.moon98 逐点比对
 python tools/framecheck.py      # 章动/黄赤交角 对 ERFA 逐点比对
 python tools/observercheck.py   # 恒星时对 ERFA 逐点比对（地平坐标见脚本注释）
+python tools/moonphasecheck.py  # 照亮比例/相位角 对 ERFA 向量的独立实现
 python tools/deadpub.py         # 列出没有消费者的公开项（rustc 不会警告 pub）
 ```
 
@@ -223,6 +224,9 @@ crates/ephemeris/     通用星历（零依赖，不知道任何农历概念）
   src/angle.rs        角度归化、角度-时刻求根
   src/tables.rs       自动生成的级数系数
   examples/{dt_dump,moon_check,frame_check,observer_check}.rs  供 tools/ 核对
+crates/moon/          月相与月球位置 app
+  src/lib.rs          相位角、照亮比例、月龄、视直径、亮边方位、出没中天
+  src/bin/moon.rs     命令行
 crates/nongli/        农历：编排规则 + 命名 + 命令行
   src/calendar.rs     编排规则（4.2–4.5）与农历日期
   src/terms.rs        二十四节气（"冬至 = 第 0 个节气"这一约定）

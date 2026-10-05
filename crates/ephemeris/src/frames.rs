@@ -38,6 +38,22 @@ pub struct Ecliptic {
     pub distance_km: f64,
 }
 
+/// 同一个地心位置，但参考当日**真**分点（已加章动 Δψ）。
+///
+/// 与 [`Ecliptic`] 的字段一模一样，存在的唯一理由是**消除一个陷阱**：
+/// 两者转赤道时一个要加章动、一个不要，光看数值分不出来。第 4 步就因为这个
+/// 把平黄道坐标喂进了 `equatorial()`，与 `atco13` 差 12–20″。
+/// 用两个类型，编译器替调用方记住这一步。
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct ApparentEcliptic {
+    /// 黄经，度，[0,360)，真分点起算。
+    pub lon_deg: f64,
+    /// 黄纬，度。
+    pub lat_deg: f64,
+    /// 地心距离，km。
+    pub distance_km: f64,
+}
+
 /// **视**赤道坐标（当日真分点、真赤道）。
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct Equatorial {
@@ -54,10 +70,11 @@ impl Ecliptic {
     ///
     /// 两个天体加的是**同一个** Δψ，所以在"朔"（日月黄经相等）的判定中它会自动抵消，
     /// 但求太阳黄经达到某个固定值的时刻（节气）时必须计入。
-    pub fn apparent(self, t: Instant) -> Self {
-        Self {
+    pub fn apparent(self, t: Instant) -> ApparentEcliptic {
+        ApparentEcliptic {
             lon_deg: norm360(self.lon_deg + nutation(t).dpsi_deg),
-            ..self
+            lat_deg: self.lat_deg,
+            distance_km: self.distance_km,
         }
     }
 
@@ -74,13 +91,22 @@ impl Ecliptic {
     /// `sin δ = sin β cos ε + cos β sin ε sin λ`，
     /// `α = atan2(sin λ cos ε − tan β sin ε, cos λ)`。
     pub fn equatorial(self, t: Instant) -> Equatorial {
-        let e = self.apparent(t);
+        self.apparent(t).equatorial(t)
+    }
+}
+
+impl ApparentEcliptic {
+    /// **视**黄道 → **视**赤道。用真黄赤交角，**不再**加章动。
+    ///
+    /// 标准球面三角：
+    /// `sin δ = sin β cos ε + cos β sin ε sin λ`，
+    /// `α = atan2(sin λ cos ε − tan β sin ε, cos λ)`。
+    pub fn equatorial(self, t: Instant) -> Equatorial {
         let eps = true_obliquity(t) * D2R;
-        let (lam, bet) = (e.lon_deg * D2R, e.lat_deg * D2R);
+        let (lam, bet) = (self.lon_deg * D2R, self.lat_deg * D2R);
         let (slam, clam) = lam.sin_cos();
         let (sbet, cbet) = bet.sin_cos();
         let (seps, ceps) = eps.sin_cos();
-
         let dec = (sbet * ceps + cbet * seps * slam).clamp(-1.0, 1.0).asin();
         let y = slam * ceps - (sbet / cbet) * seps;
         Equatorial {

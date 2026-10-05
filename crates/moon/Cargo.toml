@@ -1,0 +1,13 @@
+[package]
+name = "moon"
+description = "月相与月球位置：相位、照亮比例、月龄、视直径、出没中天"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+ephemeris = { path = "../ephemeris" }
+
+[[bin]]
+name = "moon"
+path = "src/bin/moon.rs"

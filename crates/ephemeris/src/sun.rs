@@ -52,21 +52,38 @@ pub(crate) fn earth_heliocentric(jde_tt: f64) -> (f64, f64, f64) {
     (l, b, r)
 }
 
-/// 太阳地心视黄经 (度，[0,360)，真分点起算)。
+/// 太阳地心**几何**黄经 (度，[0,360)，当日**平**分点起算)。
 ///
-/// 含 VSOP87 → FK5 改正、周年光行差、章动。
-pub fn sun_apparent_longitude(t: Instant) -> f64 {
+/// 只含 VSOP87 → FK5 改正：**不含**周年光行差、**不含**章动。
+///
+/// 什么时候要它：算**月相**。相位角是日–月–地的纯几何三角形，而光行差是
+/// 观测方向的效应，并不改变被照亮的那部分比例。用视黄经会让相位角差约 20.5″
+/// （见 `tools/moonphasecheck.py`）。Meeus 第 48 章用的也正是几何黄经。
+pub fn sun_geometric_longitude(t: Instant) -> f64 {
     let jde_tt = t.tt_jd();
-    let (l, b, r) = earth_heliocentric(jde_tt);
+    let (l, b, _r) = earth_heliocentric(jde_tt);
     let tc = (jde_tt - J2000) / 36525.0;
     let theta = l + core::f64::consts::PI;
-    // VSOP87 → FK5 改正
     let lp = theta - (1.397 * tc + 0.00031 * tc * tc) * D2R;
     let dlam = (-0.09033 + 0.03916 * (lp.cos() + lp.sin()) * b.tan()) / 3600.0;
-    let theta = theta * R2D + dlam;
-    // 周年光行差
+    norm360(theta * R2D + dlam)
+}
+
+/// 太阳地心视黄经 (度，[0,360)，真分点起算)。
+///
+/// 即 [`sun_geometric_longitude`] 再加周年光行差与章动。
+pub fn sun_apparent_longitude(t: Instant) -> f64 {
+    let (l, b, r) = earth_heliocentric(t.tt_jd());
+    let _ = (l, b);
     let aber = -20.4898 / r / 3600.0;
-    norm360(theta + aber + nutation(t).dpsi_deg)
+    norm360(sun_geometric_longitude(t) + aber + nutation(t).dpsi_deg)
+}
+
+/// 日地距离，AU。
+///
+/// 月相角要用到它（相位角与距离有关，不只是黄经差）。
+pub fn sun_distance_au(t: Instant) -> f64 {
+    earth_heliocentric(t.tt_jd()).2
 }
 
 /// 太阳视黄经等于 `target_deg` 的时刻。
