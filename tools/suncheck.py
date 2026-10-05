@@ -36,7 +36,7 @@ def main():
     rows = [l.split() for l in out.splitlines() if l.startswith('SUN')]
     Y = np.array([int(r[1]) for r in rows])
     app = np.array([float(r[2]) for r in rows])
-    dist = np.array([float(r[4]) for r in rows])
+    dist = np.array([float(r[3]) for r in rows])
 
     jd = J2000 + (Y - 2000.0) * 365.25
     t = Time(jd, format='jd', scale='tt')

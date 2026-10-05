@@ -22,14 +22,6 @@ import moon_test as M   # noqa: E402
 OUT = os.path.join(HERE, os.pardir, 'crates', 'ephemeris', 'src', 'tables.rs')
 
 
-def vsop(name, terms):
-    lines = [f'pub(crate) static {name}: &[(f64, f64, f64)] = &[']
-    for a, b, c in terms:
-        lines.append(f'    ({a!r}, {b!r}, {c!r}),')
-    lines.append('];')
-    return '\n'.join(lines)
-
-
 def moon_lon(name, terms):
     lines = [f'pub(crate) static {name}: &[(i8, i8, i8, i8, i32, i32)] = &[']
     for d, m, mp, f, l, r in terms:
