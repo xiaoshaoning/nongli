@@ -8,7 +8,7 @@
 //! 故 `j` 是无界的单调整数，**不是** 1..24。
 
 use crate::names::TERM_NAMES;
-use crate::BEIJING_OFFSET_HOURS;
+use crate::tt_to_beijing_jdn;
 use ephemeris::sun::{sun_longitude_at, MEAN_LONGITUDE_AT_J2000_DEG, MEAN_MOTION_DEG_PER_DAY};
 use ephemeris::J2000;
 
@@ -62,7 +62,7 @@ pub(crate) fn term_range(jdn_lo: i64, jdn_hi: i64) -> core::ops::RangeInclusive<
 /// 北京时间日 `jdn` 上若有节气，返回其名称。
 pub fn solar_term_on(jdn: i64) -> Option<&'static str> {
     term_range(jdn, jdn)
-        .find(|&j| ephemeris::tt_to_jdn(solar_term_jde(j), BEIJING_OFFSET_HOURS) == jdn)
+        .find(|&j| tt_to_beijing_jdn(solar_term_jde(j)) == jdn)
         .map(|j| TERM_NAMES[term_index(j)])
 }
 
@@ -70,7 +70,7 @@ pub fn solar_term_on(jdn: i64) -> Option<&'static str> {
 pub fn solar_terms_between(jdn_lo: i64, jdn_hi: i64) -> Vec<(i64, &'static str)> {
     term_range(jdn_lo, jdn_hi)
         .filter_map(|j| {
-            let d = ephemeris::tt_to_jdn(solar_term_jde(j), BEIJING_OFFSET_HOURS);
+            let d = tt_to_beijing_jdn(solar_term_jde(j));
             (d >= jdn_lo && d <= jdn_hi).then(|| (d, TERM_NAMES[term_index(j)]))
         })
         .collect()
@@ -79,15 +79,19 @@ pub fn solar_terms_between(jdn_lo: i64, jdn_hi: i64) -> Vec<(i64, &'static str)>
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ephemeris::angle::norm180;
     use ephemeris::sun::sun_apparent_longitude;
+
+    /// 角度差归化到 (−180, 180]。只测试用。
+    fn ang_diff(a: f64, b: f64) -> f64 {
+        (a - b + 180.0).rem_euclid(360.0) - 180.0
+    }
 
     #[test]
     fn solar_term_is_exact() {
         for j in [18i64, 19, 42, 1000, -500, 48000] {
             let t = solar_term_jde(j);
             let want = (DEG_PER_TERM * j as f64).rem_euclid(360.0);
-            let d = norm180(sun_apparent_longitude(t) - want);
+            let d = ang_diff(sun_apparent_longitude(t), want);
             assert!(d.abs() < 1e-6, "j={j} d={d}");
         }
     }

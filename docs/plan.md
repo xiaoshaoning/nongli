@@ -320,6 +320,16 @@ pub fn observe_moon(t: Instant, o: Observer, refraction: bool) -> MoonObservatio
 
 ### 第 2 步 — 月球的 λ、β、Δ（缝就位）
 
+**第 1 步遗留、必须在本步了结的两件事**（自审发现，已记入 `ephemeris/lib.rs` 文档）
+
+- [ ] **统一 TT 儒略日的命名。** 现在 `_jde`（17 处）、`jde_tt`（13）、`_tt_jd`（3）、
+      `near_tt_jd`（3）四种拼法并存，`lib.rs` 的约定声明自身也是两套。
+      `Instant` 落地后这些裸 `f64` 参数应全部被它取代，后缀随之统一。
+- [ ] **收口 `ephemeris` 的公开面。** 逐项确认有消费者；当前 `earth_heliocentric`、
+      `moon_longitude_mean_equinox` 在 crate 外**无人使用**，`moon_*` 这两个应被
+      `Ecliptic` 返回值的缝取代。
+
+
 - [ ] `tools/gen_tables.py` 加回月球黄纬表（`probe/moon_test.py` 的 `TB` 60 项）
 - [ ] 实现 `moon_geocentric(t) -> Ecliptic`：求和黄经、**黄纬**、距离三列
       （`MOON_LON` 第 6 列 Σr 现在被 `_cr` 丢掉，是现成的）

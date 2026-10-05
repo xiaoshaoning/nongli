@@ -73,9 +73,8 @@ pub fn jdn_from_jd(jd: f64) -> i64 {
 
 /// 一个普通日历上的日期时刻。
 ///
-/// 本身不含时区信息——时区由使用它的方法名决定（例如
-/// [`LunarDate::from_datetime`](crate::LunarDate::from_datetime) 按北京时间解释，
-/// [`LunarDate::from_utc`](crate::LunarDate::from_utc) 按 UTC 解释）。
+/// 本身不含时区信息：同一个 `DateTime` 在 UTC(+0) 与在 UTC+8 解释下是两个不同的瞬
+/// 间。用哪个时区由调用方决定，本 crate 不预设。
 ///
 /// 民用日的边界由时区决定，所以"落在哪一天"只与日编号和时区有关，
 /// 时分秒仅用于跨日判断。

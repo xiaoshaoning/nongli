@@ -50,6 +50,15 @@ pub mod terms;
 /// 这是**农历的政策**，因此留在本 crate；`ephemeris` 不预设任何时区。
 pub const BEIJING_OFFSET_HOURS: f64 = 8.0;
 
+/// TT 瞬间落在哪一个**农历日**（北京时间的日编号）。
+///
+/// 农历日以北京时间 0 时为界（标准 3.17），所以朔、节气、冬至的“哪一天”全走这里。
+/// 把 +8 收进函数，避免每个调用点都重复一遍这个政策。
+#[inline]
+pub fn tt_to_beijing_jdn(tt_jd: f64) -> i64 {
+    ephemeris::tt_to_jdn(tt_jd, BEIJING_OFFSET_HOURS)
+}
+
 pub use calendar::{
     lunar_from_jdn, new_moon_on_or_before, winter_solstice_jde,
     winter_solstice_jdn, LunarDate, NewMoon,
