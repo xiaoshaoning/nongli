@@ -46,6 +46,9 @@ pub(crate) mod tables;
 #[allow(clippy::approx_constant)]
 pub(crate) mod frames_tables;
 
+#[allow(clippy::approx_constant)]
+pub(crate) mod nutation_tables;
+
 // D2R/R2D 有真实消费者（moon crate 里到处要用），故对外导出。
 pub use angle::{D2R, R2D};
 pub use frames::{
@@ -56,7 +59,8 @@ pub use moon::{
     libration, moon_apparent_longitude, moon_geocentric, new_moon, new_moon_index_near, Libration,
 };
 pub use sun::{
-    sun_apparent_longitude, sun_distance_au, sun_geometric_longitude, sun_longitude_at,
+    sun_aberration_deg, sun_apparent_longitude, sun_distance_au, sun_geometric_longitude,
+    sun_longitude_at,
     MEAN_LONGITUDE_AT_J2000_DEG,
     MEAN_MOTION_DEG_PER_DAY,
 };

@@ -12,6 +12,7 @@
 
 use crate::angle::{norm360, D2R, R2D};
 use crate::frames_tables::EPSA;
+use crate::nutation_tables::{NUT_LS, NUT_PL};
 use crate::time::{Instant, J2000};
 
 /// 地球与月球**地心黄道**坐标。
@@ -124,35 +125,101 @@ pub struct Nutation {
     pub deps_deg: f64,
 }
 
-/// 章动 Δψ / Δε。
+/// 章动 Δψ / Δε，单位**度**。
 ///
-/// 用 **IAU 1980 的缩写式**（4 + 4 项，Meeus 22.3）。实测精度（对 `erfa.nut06a`，
-/// ±1 世纪、0.2 天步长、36.5 万点）：
+/// **IAU 2000A 完整模型**（MHB2000 日月章动 678 项 + 行星章动 687 项），
+/// 系数与引数取自 ERFA 的 `src/nut00a.c`（见 `third_party/erfa/`），
+/// 转录由 `tools/gen_nutation.py` 完成。
 ///
-/// | 量 | 最大 | rms |
-/// |---|---|---|
-/// | Δψ | 0.34″ | 0.12″ |
-/// | Δε | 0.09″ | 0.03″ |
+/// 实测（对 `erfa.nut00a`）：Δψ、Δε 都在 **1e-8 度（≈0.00004″）** 量级，
+/// 见 `tools/framecheck.py`。
 ///
-/// **曾经尝试用拟合代替它，失败了。** 见 `tools/gen_frames.py` 与
-/// `docs/plan.md` 第 3 步：对 `nut06a` 拟合 200 项（五个基本引数的整数组合作基，
-/// 跨 ±2000 年抖动窗采样）得到的级数在 ±1 世纪反而更差（Δψ 0.75″）。
-/// 精度在 ~0.3″ 处饱和，加项数无用。所以**保留缩写式**，不引入回归。
+/// 此前用的是 4 + 4 项缩写式（Δψ 误差 0.34″）。换掉它是因为第 4 步实测到
+/// 那 0.34″ 是太阳视黄经的主要误差源，进而影响节气时刻约 8 秒。
+///
+/// 代价：每次调用约 1365 组三角函数，比缩写式慢三个数量级。实测 `new_moon`
+/// 因此从 50 µs 涨到约 500 µs——对命令行与测试都可接受，见 `docs/plan.md`。
 pub fn nutation(t: Instant) -> Nutation {
-    let jd = t.tt_jd();
-    let tc = (jd - J2000) / 36525.0;
-    let om = (125.04452 - 1934.136261 * tc + 0.0020708 * tc * tc + tc * tc * tc / 450000.0)
-        * D2R;
-    let ls = (280.4665 + 36000.7698 * tc) * D2R;
-    let lm = (218.3165 + 481267.8813 * tc) * D2R;
-    let (s_om, c_om) = om.sin_cos();
-    let dpsi = -17.20 * s_om - 1.32 * (2.0 * ls).sin() - 0.23 * (2.0 * lm).sin()
-        + 0.21 * (2.0 * om).sin();
-    let deps =
-        9.20 * c_om + 0.57 * (2.0 * ls).cos() + 0.10 * (2.0 * lm).cos() - 0.09 * (2.0 * om).cos();
+    // 系数单位是 0.1 微角秒：U2R = 角秒→弧度 / 1e7
+    const U2R: f64 = core::f64::consts::PI / (180.0 * 3600.0) / 1e7;
+    const TURNAS: f64 = 1296000.0;
+    const TAU: f64 = core::f64::consts::TAU;
+
+    let tc = (t.tt_jd() - J2000) / 36525.0;
+    // 下面这些常数**逐字抄自** ERFA 的 nut00a.c / fa*.c，故意不加千分位下划线——
+    // 这样可以直接和源码对diff。（clippy 的 digit grouping 提示在此不适用。）
+    //
+    // 角秒多项式 → 归化到一圈 → 弧度（对应 C 里的 fmod(...) * DAS2R）
+    let red = |as_poly: f64| (as_poly % TURNAS) * (TAU / TURNAS);
+
+    // ---- 日月章动的引数（IERS 2003；其中 l' 与 D 用 MHB2000 自身的形式）----
+    let el = red(485868.249036
+        + tc * (1717915923.2178
+            + tc * (31.8792 + tc * (0.051635 + tc * (-0.00024470)))));
+    let elp = red(1287104.79305
+        + tc * (129596581.0481
+            + tc * (-0.5532 + tc * (0.000136 + tc * (-0.00001149)))));
+    let f = red(335779.526232
+        + tc * (1739527262.8478
+            + tc * (-12.7512 + tc * (-0.001037 + tc * (0.00000417)))));
+    let d = red(1072260.70369
+        + tc * (1602961601.2090
+            + tc * (-6.3706 + tc * (0.006593 + tc * (-0.00003169)))));
+    let om = red(450160.398036
+        + tc * (-6962890.5431
+            + tc * (7.4722 + tc * (0.007702 + tc * (-0.00005939)))));
+
+    let mut dp = 0.0f64;
+    let mut de = 0.0f64;
+    for &(nl, nlp, nf, nd, nom, sp, spt, cp, ce, cet, se) in NUT_LS {
+        let arg = nl as f64 * el
+            + nlp as f64 * elp
+            + nf as f64 * f
+            + nd as f64 * d
+            + nom as f64 * om;
+        let (s, c) = arg.sin_cos();
+        dp += (sp + spt * tc) * s + cp * c;
+        de += (ce + cet * tc) * c + se * s;
+    }
+
+    // ---- 行星章动：引数用 MHB2000 自己的形式（与上面故意不同，照抄 ERFA）----
+    let al = (2.35555598 + 8_328.6914269554 * tc) % TAU;
+    let af = (1.627905234 + 8_433.466158131 * tc) % TAU;
+    let ad = (5.198466741 + 7_771.3771468121 * tc) % TAU;
+    let aom = (2.18243920 - 33.757045 * tc) % TAU;
+    let apa = (0.024381750 + 0.00000538691 * tc) * tc;
+    let m_lon = |c0: f64, c1: f64| (c0 + c1 * tc) % TAU;
+    let alme = m_lon(4.402608842, 2608.7903141574);
+    let alve = m_lon(3.176146697, 1021.3285546211);
+    let alea = m_lon(1.753470314, 628.3075849991);
+    let alma = m_lon(6.203480913, 334.0612426700);
+    let alju = m_lon(0.599546497, 52.9690962641);
+    let alsa = m_lon(0.874016757, 21.3299104960);
+    let alur = m_lon(5.481293872, 7.4781598567);
+    let alne = m_lon(5.321159000, 3.8127774000);
+
+    for &(nl, nf, nd, nom, nme, nve, nea, nma, nju, nsa, nur, nne, npa, sp, cp, ce, se) in NUT_PL {
+        let arg = nl as f64 * al
+            + nf as f64 * af
+            + nd as f64 * ad
+            + nom as f64 * aom
+            + nme as f64 * alme
+            + nve as f64 * alve
+            + nea as f64 * alea
+            + nma as f64 * alma
+            + nju as f64 * alju
+            + nsa as f64 * alsa
+            + nur as f64 * alur
+            + nne as f64 * alne
+            + npa as f64 * apa;
+        let (s, c) = arg.sin_cos();
+        dp += sp * s + cp * c;
+        de += se * s + ce * c;
+    }
+
     Nutation {
-        dpsi_deg: dpsi / 3600.0,
-        deps_deg: deps / 3600.0,
+        dpsi_deg: dp * U2R * R2D,
+        deps_deg: de * U2R * R2D,
     }
 }
 
@@ -189,10 +256,10 @@ fn poly_arcsec(c: &[f64; 6], t: Instant) -> f64 {
 mod tests {
     use super::*;
 
-    /// 与 `erfa.nut06a`、`erfa.obl06` 的参考值比对。
+    /// 章动与黄赤交角对 ERFA 的参考值。
     ///
-    /// 参考值由 ERFA 直接给出，单位角秒（Δψ、Δε）与度（ε_A）。
-    /// 容忍度取实测上限的约两倍，容不下回归。
+    /// 容差 **0.001″**：章动现在是 IAU 2000A 完整模型，与 `nut06a` 的差只剩
+    /// 它对 2000–2100 的那个小调整因子（~1e-5″）。换回缩写式（0.34″）会立刻挂。
     #[test]
     fn matches_erfa_reference_values() {
         // (JD_TT, nut06a Δψ, nut06a Δε, obl06 ε_A/度)
@@ -209,11 +276,11 @@ mod tests {
             let got_psi = n.dpsi_deg * 3600.0;
             let got_eps = n.deps_deg * 3600.0;
             assert!(
-                (got_psi - dpsi_as).abs() < 1.0,
+                (got_psi - dpsi_as).abs() < 0.001,
                 "jd={jd} Δψ={got_psi} 参考={dpsi_as}"
             );
             assert!(
-                (got_eps - deps_as).abs() < 1.0,
+                (got_eps - deps_as).abs() < 0.001,
                 "jd={jd} Δε={got_eps} 参考={deps_as}"
             );
             assert!(

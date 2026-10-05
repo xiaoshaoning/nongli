@@ -69,14 +69,19 @@ pub fn sun_geometric_longitude(t: Instant) -> f64 {
     norm360(theta * R2D + dlam)
 }
 
+/// 太阳的周年光行差，度（负值，约 −20.5″/R）。
+///
+/// 单独拆出来是因为"朔"的判定要用它：章动 Δψ 对日月是同一个量、作差时**精确抵消**，
+/// 但光行差只作用于太阳，不抵消。见 [`new_moon`](crate::new_moon)。
+pub fn sun_aberration_deg(t: Instant) -> f64 {
+    -20.4898 / earth_heliocentric(t.tt_jd()).2 / 3600.0
+}
+
 /// 太阳地心视黄经 (度，[0,360)，真分点起算)。
 ///
 /// 即 [`sun_geometric_longitude`] 再加周年光行差与章动。
 pub fn sun_apparent_longitude(t: Instant) -> f64 {
-    let (l, b, r) = earth_heliocentric(t.tt_jd());
-    let _ = (l, b);
-    let aber = -20.4898 / r / 3600.0;
-    norm360(sun_geometric_longitude(t) + aber + nutation(t).dpsi_deg)
+    norm360(sun_geometric_longitude(t) + sun_aberration_deg(t) + nutation(t).dpsi_deg)
 }
 
 /// 日地距离，AU。

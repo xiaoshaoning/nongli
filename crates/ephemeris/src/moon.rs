@@ -8,7 +8,7 @@
 
 use crate::angle::{norm180, norm360, newton, D2R};
 use crate::frames::Ecliptic;
-use crate::sun::sun_apparent_longitude;
+use crate::sun::sun_geometric_longitude;
 use crate::tables::{MOON_LAT, MOON_LON};
 use crate::time::{Instant, J2000};
 
@@ -150,9 +150,16 @@ pub fn new_moon(k: i64) -> Instant {
         + 0.00015437 * t * t
         - 0.000000150 * t * t * t
         + 0.00000000073 * t * t * t * t;
+    // 这里**故意不用**视黄经：朔的条件是日月视黄经相等，而章动 Δψ 对两者是同一个量、
+    // 作差时精确抵消。少算两遍 IAU 2000A 章动（约 110 µs），根一模一样。
+    // 太阳的周年光行差**不能**省——它只作用于太阳。
     let f = |x: f64| {
         let i = Instant::from_tt(x);
-        norm180(moon_apparent_longitude(i) - sun_apparent_longitude(i))
+        norm180(
+            moon_geocentric(i).lon_deg
+                - sun_geometric_longitude(i)
+                - crate::sun::sun_aberration_deg(i),
+        )
     };
     Instant::from_tt(newton(jde, f, 0.05, 2.0))
 }
@@ -247,6 +254,7 @@ mod tests {
 
     #[test]
     fn new_moon_is_syzygy() {
+        use crate::sun::sun_apparent_longitude;
         for k in [-2000i64, -100, 0, 1, 337, 12000] {
             let t = new_moon(k);
             let d = norm180(moon_apparent_longitude(t) - sun_apparent_longitude(t));
