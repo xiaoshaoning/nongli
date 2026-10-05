@@ -35,7 +35,7 @@ def parse_block(text, name):
     return rows
 
 
-# 系数小于此值（单位 0.1 微角秒）的项丢弃。
+# 系数全部小于此值（单位 0.1 微角秒）的项丢弃。
 #
 # 这不是偷工：1365 项里绝大多数远低于本 crate 的目标精度。按最坏情况（被丢的项
 # 全部同相相加）估计，阈值 100（= 1e-5 角秒）丢掉的总幅度 ≤ 0.0019″，
@@ -43,15 +43,31 @@ def parse_block(text, name):
 # 实测误差见 tools/framecheck.py。
 MIN_COEFF = 100.0
 
+# 上面的界是 t 无关的，**前提**是被丢的项不带时间因子。
+#
+# 日月项有 spt / cet 两列是 t·sin / t·cos，一个被丢的 |spt| = 90 的项在 t = 40 世纪
+# 会贡献 90×40 = 3600 单位（3.6e-4″）。所以"幅度求和"这个界只有在被丢项的
+# spt、cet 全为 0 时才成立。实测确实全为 0（带 t 因子的项系数都大，都被留下了），
+# 下面的 assert 把这个巧合变成必须成立的条件——换表时若不再成立会立刻炸。
+LS_COL_SP, LS_COL_SPT, LS_COL_CP = 5, 6, 7
+PL_COL_FIRST = 13   # 行星项 {0..12 乘子, sp,cp,se,ce}，没有 t 列
+
 
 def main():
     text = open(SRC, encoding='utf-8').read()
-    ls = [r for r in parse_block(text, 'xls') if max(abs(x) for x in r[5:]) >= MIN_COEFF]
-    pl = [r for r in parse_block(text, 'xpl') if max(abs(x) for x in r[13:]) >= MIN_COEFF]
-    print(f'日月项 {len(ls)}（阈值 {MIN_COEFF}），行星项 {len(pl)}')
+    all_ls = parse_block(text, 'xls')
+    all_pl = parse_block(text, 'xpl')
+    ls = [r for r in all_ls if max(abs(x) for x in r[LS_COL_SP:]) >= MIN_COEFF]
+    pl = [r for r in all_pl if max(abs(x) for x in r[PL_COL_FIRST:]) >= MIN_COEFF]
+
+    dropped_ls = [r for r in all_ls if r not in ls]
+    bad = [r for r in dropped_ls if r[LS_COL_SPT] or r[9]]
+    assert not bad, f'被剪掉的日月项带 t 因子，最坏界不再是 t 无关：{bad[:2]}'
+    print(f'日月项 {len(ls)}（阈值 {MIN_COEFF}），行星项 {len(pl)}；'
+          f'剪掉的 {len(dropped_ls)} 项 t 因子全为 0，界与 t 无关')
 
     # 日月项：{nl,nlp,nf,nd,nom, sp,spt,cp, ce,cet,se}  -> 11 个数
-    bad = [r for r in ls if len(r) != 11]
+    bad = [r for r in ls + dropped_ls if len(r) != 11]
     assert not bad, f'日月项列数不对：{bad[:2]}'
     bad = [r for r in pl if len(r) != 17]
     assert not bad, f'行星项列数不对：{bad[:2]}'

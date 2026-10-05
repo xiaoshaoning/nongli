@@ -99,7 +99,7 @@ impl Ecliptic {
     /// 章动只算一次，同时喂给黄经改正与真黄赤交角（此前两者各算一遍）。
     pub fn equatorial(self, t: Instant) -> Equatorial {
         let n = nutation(t);
-        self.apparent_with(n).rotate(mean_obliquity(t) + n.deps_deg)
+        self.apparent_with(n).rotate(true_obliquity_with(t, n))
     }
 }
 
@@ -246,7 +246,16 @@ pub fn mean_obliquity(t: Instant) -> f64 {
 
 /// **真**黄赤交角 ε = ε_A + Δε，度。
 pub fn true_obliquity(t: Instant) -> f64 {
-    mean_obliquity(t) + nutation(t).deps_deg
+    true_obliquity_with(t, nutation(t))
+}
+
+/// 章动已知时用这个，免得再算一遍。
+///
+/// 私有："真交角 = 平交角 + Δε" 这个式子只在这里写一遍，
+/// [`Ecliptic::equatorial`] 需要它时也走这里——否则那个式子会有两份，
+/// 日后若像 ERFA `ee00a` 那样再加个岁差速率修正就会只改到一份。
+fn true_obliquity_with(t: Instant, n: Nutation) -> f64 {
+    mean_obliquity(t) + n.deps_deg
 }
 
 // 岁差的三个 Fukushima–Williams 角（γ̄、φ̄、ψ̄）**没有暴露**。
