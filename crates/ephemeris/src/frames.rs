@@ -4,11 +4,43 @@
 //! 赤道坐标与站心地平坐标。太阳理论与月球理论都只是往这条链的入口喂数据，
 //! 它们不该各自知道这条链。
 //!
-//! 目前只有章动（缩写式，误差 ≤ 0.9″）；岁差 IAU2006、黄赤交角与黄道↔赤道
-//! 将在后续步骤加入，见 `docs/plan.md` 第 3 步。
+//! 目前实现了章动与 [`Ecliptic::apparent`]；岁差 IAU2006、黄赤交角与
+//! 黄道↔赤道将在后续步骤加入，见 `docs/plan.md` 第 3 步。
 
 use crate::angle::D2R;
-use crate::time::J2000;
+use crate::time::{Instant, J2000};
+
+/// 地球与月球**地心黄道**坐标。
+///
+/// 这是两个理论的公共输出类型。约定（**改动会破坏所有下游**）：
+///
+/// | 项 | 取值 |
+/// |---|---|
+/// | 参考点 | 地心 |
+/// | 参考面/点 | **平**黄道、**平**分点（*不是*真分点）|
+/// | 单位 | 经度、纬度：度；距离：km。经度归化到 [0,360) |
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Ecliptic {
+    /// 黄经，度，[0,360)。
+    pub lon_deg: f64,
+    /// 黄纬，度。
+    pub lat_deg: f64,
+    /// 地心距离，km。
+    pub distance_km: f64,
+}
+
+impl Ecliptic {
+    /// 平黄道分点 → **真**分点：加章动黄经 Δψ。
+    ///
+    /// 两个天体加的是**同一个** Δψ，所以在"朔"（日月黄经相等）的判定中它会自动抵消，
+    /// 但求太阳黄经达到某个固定值的时刻（节气）时必须计入。
+    pub fn apparent(self, t: Instant) -> Self {
+        Self {
+            lon_deg: crate::angle::norm360(self.lon_deg + nutation_longitude(t.tt_jd())),
+            ..self
+        }
+    }
+}
 
 /// 章动黄经 Δψ (度)。IAU 1980 主项 (Meeus 22.3)。
 ///
@@ -44,5 +76,18 @@ mod tests {
             let got = nutation_longitude(jde);
             assert!((got - want).abs() < 1e-9, "jde={jde} got={got} want={want}");
         }
+    }
+
+    #[test]
+    fn apparent_only_shifts_longitude() {
+        let e = Ecliptic {
+            lon_deg: 10.0,
+            lat_deg: -3.0,
+            distance_km: 384400.0,
+        };
+        let a = e.apparent(Instant::from_tt(2451545.0));
+        assert_eq!(a.lat_deg, e.lat_deg);
+        assert_eq!(a.distance_km, e.distance_km);
+        assert!((a.lon_deg - 10.0 - nutation_longitude(2451545.0)).abs() < 1e-12);
     }
 }

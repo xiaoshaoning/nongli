@@ -16,7 +16,8 @@
 //! * **自变量**：天文函数一律要 TT 儒略日。
 //! * **“哪一天”的返回**：一律是**民用日编号**（`jdn`），时区由调用方以
 //!   `utc_offset_hours` 指定，本 crate 不预设立场。
-//! * 两者的换算：[`tt_to_jdn`]（TT → 日编号）、[`jdn_in_offset`]（UT1 → 日编号）。
+//! * 两者的换算：[`Instant::jdn_in_offset`]（由 [`Instant`] 的 TT 出发）、
+//!   [`jdn_in_offset`]（由 UT1 出发）。
 //!
 //! 混用 TT 与 UT1 是本领域最常见的错误（月球 0.55″/秒），所以每个形参名都带
 //! 时间尺度后缀。**已知不一致**：`_jde` 与 `_tt_jd` 两种拼法并存，是第 1 步
@@ -40,14 +41,13 @@ pub(crate) mod angle;
 #[allow(clippy::approx_constant)]
 pub(crate) mod tables;
 
-pub use moon::{
-    moon_apparent_longitude, moon_longitude_mean_equinox, new_moon_index_near, new_moon_jde,
-};
+pub use frames::{Ecliptic, nutation_longitude};
+pub use moon::{moon_apparent_longitude, moon_geocentric, new_moon, new_moon_index_near};
 pub use sun::{
-    earth_heliocentric, sun_apparent_longitude, sun_longitude_at, MEAN_LONGITUDE_AT_J2000_DEG,
+    sun_apparent_longitude, sun_longitude_at, MEAN_LONGITUDE_AT_J2000_DEG,
     MEAN_MOTION_DEG_PER_DAY,
 };
 pub use time::{
-    delta_t_seconds, jd_from_jdn, jdn_from_jd, jdn_from_ymd, jdn_in_offset, tt_to_jdn, ymd_from_jdn,
-    Calendar, DateTime, J2000,
+    delta_t_seconds, jd_from_jdn, jdn_from_jd, jdn_from_ymd, jdn_in_offset, ymd_from_jdn, Calendar,
+    DateTime, Instant, J2000,
 };

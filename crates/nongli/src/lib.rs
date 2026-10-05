@@ -50,24 +50,22 @@ pub mod terms;
 /// 这是**农历的政策**，因此留在本 crate；`ephemeris` 不预设任何时区。
 pub const BEIJING_OFFSET_HOURS: f64 = 8.0;
 
-/// TT 瞬间落在哪一个**农历日**（北京时间的日编号）。
+/// 某个瞬间落在哪一个**农历日**（北京时间的日编号）。
 ///
 /// 农历日以北京时间 0 时为界（标准 3.17），所以朔、节气、冬至的“哪一天”全走这里。
 /// 把 +8 收进函数，避免每个调用点都重复一遍这个政策。
 #[inline]
-pub fn tt_to_beijing_jdn(tt_jd: f64) -> i64 {
-    ephemeris::tt_to_jdn(tt_jd, BEIJING_OFFSET_HOURS)
+pub fn beijing_jdn(t: Instant) -> i64 {
+    t.jdn_in_offset(BEIJING_OFFSET_HOURS)
 }
 
-pub use calendar::{
-    lunar_from_jdn, new_moon_on_or_before, winter_solstice_jde,
-    winter_solstice_jdn, LunarDate, NewMoon,
-};
+pub use calendar::{lunar_from_jdn, new_moon_on_or_before, winter_solstice, winter_solstice_jdn,
+                   LunarDate, NewMoon};
 pub use names::{day_name, ganzhi, GAN, MONTH_NAMES, TERM_NAMES, ZHI, ZODIAC};
 // 这两个出现在本 crate 公开函数的签名里。调用方不该为了能写出参数类型而额外
 // 依赖 `ephemeris`；其余星历接口请直接用 `ephemeris`。
-pub use ephemeris::{Calendar, DateTime};
+pub use ephemeris::{Calendar, DateTime, Instant};
 pub use terms::{
-    is_mid_term, solar_term_jde, solar_term_index_near, solar_term_on, solar_terms_between,
-    term_index, WINTER_SOLSTICE_LONGITUDE,
+    is_mid_term, solar_term, solar_term_index_near, solar_term_on, solar_terms_between, term_index,
+    WINTER_SOLSTICE_LONGITUDE,
 };

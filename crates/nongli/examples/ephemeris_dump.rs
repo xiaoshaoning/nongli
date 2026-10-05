@@ -8,9 +8,9 @@
 //! cargo run --release --example ephemeris_dump -- -1975 6025 [nm_step] [term_step]
 //! ```
 
-use ephemeris::{moon_apparent_longitude, new_moon_index_near, new_moon_jde,
-                sun_apparent_longitude};
-use nongli::{solar_term_index_near, solar_term_jde};
+use ephemeris::{moon_apparent_longitude, new_moon, new_moon_index_near, sun_apparent_longitude,
+                Instant};
+use nongli::{solar_term, solar_term_index_near};
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -27,26 +27,26 @@ fn main() {
         let jd = jd0 + (jd1 - jd0) * i as f64 / n as f64;
         println!(
             "EPH {jd:.6} {:.10} {:.10}",
-            sun_apparent_longitude(jd),
-            moon_apparent_longitude(jd)
+            sun_apparent_longitude(Instant::from_tt(jd)),
+            moon_apparent_longitude(Instant::from_tt(jd))
         );
     }
 
     // 2) 每 `nm_step` 个朔取一个采样点（覆盖整个范围且不穷举）
-    let k0 = new_moon_index_near(jd0) - 1;
-    let k1 = new_moon_index_near(jd1) + 1;
+    let k0 = new_moon_index_near(Instant::from_tt(jd0)) - 1;
+    let k1 = new_moon_index_near(Instant::from_tt(jd1)) + 1;
     let mut k = k0;
     while k <= k1 {
-        println!("NM {k} {:.8}", new_moon_jde(k));
+        println!("NM {k} {:.8}", new_moon(k).tt_jd());
         k += nm_step;
     }
 
     // 3) 节气采样
-    let j0 = solar_term_index_near(jd0) - 1;
-    let j1 = solar_term_index_near(jd1) + 1;
+    let j0 = solar_term_index_near(Instant::from_tt(jd0)) - 1;
+    let j1 = solar_term_index_near(Instant::from_tt(jd1)) + 1;
     let mut j = j0;
     while j <= j1 {
-        println!("ST {j} {:.8}", solar_term_jde(j));
+        println!("ST {j} {:.8}", solar_term(j).tt_jd());
         j += term_step;
     }
 }

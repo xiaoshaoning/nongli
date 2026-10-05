@@ -4,6 +4,9 @@
 //! 偏移。本模块把这两步分开：ΔT 在这里，时区由调用方以 `utc_offset_hours` 传入。
 //!
 //! 注意本模块**不预设任何时区**：用哪个时区是调用方的政策。
+//!
+//! [`Instant`] 把一个瞬间的 TT 与 UT1 绑在一起，两者都由它自己算，调用方拿不到
+//! "把 TT 当 UT1 传"的机会——这是本领域最常见的错误。
 
 /// 历法：普通日历（公历）或儒略历。
 ///
@@ -59,7 +62,7 @@ pub fn ymd_from_jdn(jdn: i64, cal: Calendar) -> (i64, u32, u32) {
 /// 日编号 → 该日 0 时的儒略日。
 ///
 /// 不含时区信息：时区只是在“儒略日 → 日编号”这一步加上偏移，
-/// 见 [`jdn_in_offset`] 与 [`tt_to_jdn`]。
+/// 见 [`jdn_in_offset`]（UT1 起）与 [`Instant::jdn_in_offset`]（TT 起）。
 #[inline]
 pub fn jd_from_jdn(jdn: i64) -> f64 {
     jdn as f64 - 0.5
@@ -256,18 +259,51 @@ fn delta_t_series(decimal_year: f64) -> f64 {
 
 /// UT1 儒略日 → 在给定时区下的民用日编号。
 ///
-/// `utc_offset_hours` 例如北京时间为 +8.0。这是"某瞬间落在哪一天"的一般形式；
-/// 时区是一种**政策**，由调用方决定，本 crate 不预设立场。
+/// `utc_offset_hours` 例如北京时间为 +8.0。这是"某瞬间落在哪一天"的**原始形式**；
+/// 已有 [`Instant`] 时请用 [`Instant::jdn_in_offset`]。时区是一种**政策**，
+/// 由调用方决定，本 crate 不预设立场。
 pub fn jdn_in_offset(jd_ut1: f64, utc_offset_hours: f64) -> i64 {
     jdn_from_jd(jd_ut1 + utc_offset_hours / 24.0)
 }
 
-/// TT 儒略日 → 在给定时区下的民用日编号。
+/// 一个瞬间。
 ///
-/// 步骤：TT → UT1 (减 ΔT) → 加时区偏移 → 取整日。
-pub fn tt_to_jdn(jd_tt: f64, utc_offset_hours: f64) -> i64 {
-    let dt = delta_t_seconds(decimal_year_from_jd(jd_tt));
-    jdn_in_offset(jd_tt - dt / 86400.0, utc_offset_hours)
+/// 同时携带 **TT**（天文级数的自变量）与 **UT1**（民用时的依据），ΔT 由
+/// [`Instant::from_tt`] 内部处理。字段私有，因此调用方无法把两种时间尺度搞混。
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Instant {
+    tt_jd: f64,
+    ut1_jd: f64,
+}
+
+impl Instant {
+    /// 由 TT 儒略日构造；UT1 由 ΔT 推出。
+    ///
+    /// ΔT 是小数年的函数，这里按 TT 自身估算年份——多项式对年份只敏感到 0.001 年，
+    /// 而 ΔT 在一年内的变化远小于它的不确定度，所以无需迭代。
+    pub fn from_tt(tt_jd: f64) -> Self {
+        let ut1_jd = tt_jd - delta_t_seconds(decimal_year_from_jd(tt_jd)) / 86400.0;
+        Self { tt_jd, ut1_jd }
+    }
+
+    /// 该瞬间的 TT 儒略日（天文级数的自变量）。
+    #[inline]
+    pub fn tt_jd(&self) -> f64 {
+        self.tt_jd
+    }
+
+    /// 该瞬间的 UT1 儒略日。
+    #[inline]
+    pub fn ut1_jd(&self) -> f64 {
+        self.ut1_jd
+    }
+
+    /// 该瞬间在给定时区下落在哪一"民用日"（日编号）。
+    ///
+    /// 这是"哪一天"的唯一入口：先由 UT1 加时区偏移，再取整。
+    pub fn jdn_in_offset(&self, utc_offset_hours: f64) -> i64 {
+        jdn_in_offset(self.ut1_jd, utc_offset_hours)
+    }
 }
 
 #[cfg(test)]

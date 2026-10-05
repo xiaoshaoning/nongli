@@ -7,12 +7,12 @@
 //! * 4.5 十一月之后第 2 个(不计闰月)农历月为年的起始月
 
 use crate::names::{day_name, ganzhi, MONTH_NAMES, ZODIAC};
-use crate::terms::{is_mid_term, solar_term_jde, solar_term_on, term_range,
+use crate::terms::{is_mid_term, solar_term, solar_term_on, term_range,
                    WINTER_SOLSTICE_LONGITUDE};
-use crate::{tt_to_beijing_jdn, BEIJING_OFFSET_HOURS};
+use crate::{beijing_jdn, BEIJING_OFFSET_HOURS};
 use ephemeris::sun::sun_longitude_at;
-use ephemeris::{jd_from_jdn, jdn_from_ymd, jdn_in_offset, new_moon_index_near, new_moon_jde,
-                ymd_from_jdn, Calendar, DateTime};
+use ephemeris::{jd_from_jdn, jdn_from_ymd, jdn_in_offset, new_moon, new_moon_index_near,
+                ymd_from_jdn, Calendar, DateTime, Instant};
 
 /// 一个农历日期。
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -39,7 +39,7 @@ const GANZHI_DAY_EPOCH_JDN: i64 = 2433191;
 /// 农历月以朔日为首日 (4.2)，故这也是“某月从哪一天开始”的答案。
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct NewMoon {
-    /// [`new_moon_jde`] 的序号。
+    /// [`new_moon`] 的序号。
     pub index: i64,
     /// 该朔所在的北京时间日编号 (日编号，非儒略日)。
     pub jdn: i64,
@@ -48,12 +48,12 @@ pub struct NewMoon {
 /// 不晚于 `jdn` 的最后一次朔。
 pub fn new_moon_on_or_before(jdn: i64) -> NewMoon {
     // 初值只需落在真值的 ±1 个朔望月内，故直接用日编号当儒略日估算。
-    let mut k = new_moon_index_near(jd_from_jdn(jdn));
+    let mut k = new_moon_index_near(Instant::from_tt(jd_from_jdn(jdn)));
     for _ in 0..8 {
-        let s = tt_to_beijing_jdn(new_moon_jde(k));
+        let s = beijing_jdn(new_moon(k));
         if s > jdn {
             k -= 1;
-        } else if tt_to_beijing_jdn(new_moon_jde(k + 1)) <= jdn {
+        } else if beijing_jdn(new_moon(k + 1)) <= jdn {
             k += 1;
         } else {
             return NewMoon { index: k, jdn: s };
@@ -61,19 +61,27 @@ pub fn new_moon_on_or_before(jdn: i64) -> NewMoon {
     }
     NewMoon {
         index: k,
-        jdn: tt_to_beijing_jdn(new_moon_jde(k)),
+        jdn: beijing_jdn(new_moon(k)),
     }
 }
 
-/// 冬至的 TT 儒略日，取给定公历年年末的那一次。
-pub fn winter_solstice_jde(greg_year: i64) -> f64 {
-    let approx = jd_from_jdn(jdn_from_ymd(greg_year, 12, 22, Calendar::Gregorian));
+/// 冬至，取给定公历年年末的那一次。
+///
+/// 初值取该年 12 月 22 日的民用日编号当作 TT——它只是给求根器的起点，
+/// 与真实 TT 相差 ΔT (分钟量级) 完全不影响收敛。
+pub fn winter_solstice(greg_year: i64) -> Instant {
+    let approx = Instant::from_tt(jd_from_jdn(jdn_from_ymd(
+        greg_year,
+        12,
+        22,
+        Calendar::Gregorian,
+    )));
     sun_longitude_at(WINTER_SOLSTICE_LONGITUDE, approx)
 }
 
 /// 冬至所在的北京时间日。
 pub fn winter_solstice_jdn(greg_year: i64) -> i64 {
-    tt_to_beijing_jdn(winter_solstice_jde(greg_year))
+    beijing_jdn(winter_solstice(greg_year))
 }
 
 /// 由"岁"内的月序号求月名序号。
@@ -111,7 +119,7 @@ pub fn lunar_from_jdn(jdn: i64) -> LunarDate {
     let m_end = next_month11.jdn;
 
     let starts: Vec<i64> = (0..=nm)
-        .map(|i| tt_to_beijing_jdn(new_moon_jde(k0 + i as i64)))
+        .map(|i| beijing_jdn(new_moon(k0 + i as i64)))
         .collect();
     debug_assert_eq!(starts[0], m0);
     debug_assert_eq!(starts[nm], m_end);
@@ -123,7 +131,7 @@ pub fn lunar_from_jdn(jdn: i64) -> LunarDate {
             if !is_mid_term(j) {
                 continue;
             }
-            let day = tt_to_beijing_jdn(solar_term_jde(j));
+            let day = beijing_jdn(solar_term(j));
             if day >= m0 && day < m_end {
                 let i = starts.partition_point(|&s| s <= day) - 1;
                 has_zhongqi[i] = true;
@@ -395,7 +403,7 @@ mod tests {
     fn two_zhongqi_free_months_takes_the_first() {
         let ws = winter_solstice_jdn(-124);
         let m11 = new_moon_on_or_before(ws);
-        let month_start = |i: i64| tt_to_beijing_jdn(new_moon_jde(m11.index + i));
+        let month_start = |i: i64| beijing_jdn(new_moon(m11.index + i));
 
         let l = lunar_from_jdn(month_start(9));
         assert!(l.leap, "{l}");
@@ -446,14 +454,14 @@ mod tests {
             assert!(m0 <= ws && ws < m1, "year={year}: 冬至不在本岁第一个月内");
             if nm == 13 {
                 let starts: Vec<i64> = (0..=nm)
-                    .map(|i| tt_to_beijing_jdn(new_moon_jde(k0 + i as i64)))
+                    .map(|i| beijing_jdn(new_moon(k0 + i as i64)))
                     .collect();
                 let mut has = vec![false; nm];
                 for j in term_range(m0, m1 - 1) {
                     if j.rem_euclid(2) != 0 {
                         continue;
                     }
-                    let day = tt_to_beijing_jdn(solar_term_jde(j));
+                    let day = beijing_jdn(solar_term(j));
                     if day >= m0 && day < m1 {
                         has[starts.partition_point(|&s| s <= day) - 1] = true;
                     }
