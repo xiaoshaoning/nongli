@@ -66,6 +66,19 @@ fn eccentricity_factor(m: i8, e: f64) -> f64 {
     }
 }
 
+impl Arguments {
+    /// 一项的引数 `i·D + j·M + k·M' + l·F`，弧度。
+    ///
+    /// 经度表与纬度表共用同一个组合方式，所以只写一次。
+    fn term_angle(&self, cd: i8, cm: i8, cmp: i8, cf: i8) -> f64 {
+        (cd as f64 * self.d
+            + cm as f64 * self.m
+            + cmp as f64 * self.mprime
+            + cf as f64 * self.f)
+            * D2R
+    }
+}
+
 /// 月球地心**黄道**位置。
 ///
 /// # 约定（改动会破坏所有下游）
@@ -84,13 +97,13 @@ fn eccentricity_factor(m: i8, e: f64) -> f64 {
 /// 会把它量出来）。
 pub fn moon_geocentric(t: Instant) -> Ecliptic {
     let a = arguments(t.tt_jd());
-    let (d, m, mp, f) = (a.d, a.m, a.mprime, a.f);
+    // 附加项里反复出现这两个，给个短名字免得到处写 a.
+    let (mp, f) = (a.mprime, a.f);
 
     let mut sl = 0.0; // 1e-6 度
     let mut sr = 0.0; // 1e-3 km
     for &(cd, cm, cmp, cf, cl, cr) in MOON_LON {
-        let w = eccentricity_factor(cm, a.e);
-        let arg = (cd as f64 * d + cm as f64 * m + cmp as f64 * mp + cf as f64 * f) * D2R;
+        let (w, arg) = (eccentricity_factor(cm, a.e), a.term_angle(cd, cm, cmp, cf));
         sl += cl as f64 * w * arg.sin();
         sr += cr as f64 * w * arg.cos();
     }
@@ -101,8 +114,7 @@ pub fn moon_geocentric(t: Instant) -> Ecliptic {
 
     let mut sb = 0.0; // 1e-6 度
     for &(cd, cm, cmp, cf, cb) in MOON_LAT {
-        let w = eccentricity_factor(cm, a.e);
-        let arg = (cd as f64 * d + cm as f64 * m + cmp as f64 * mp + cf as f64 * f) * D2R;
+        let (w, arg) = (eccentricity_factor(cm, a.e), a.term_angle(cd, cm, cmp, cf));
         sb += cb as f64 * w * arg.sin();
     }
     // 附加项 (Meeus 47.8)

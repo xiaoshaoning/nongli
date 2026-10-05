@@ -47,8 +47,11 @@ impl Ecliptic {
 /// 缩写式，与 IAU2006/2000A 的最大偏差 0.9″，对太阳视黄经即约 20 秒的时间误差。
 /// 后续会换成从 `erfa.nut06a` 拟合的紧凑级数 (见 docs/plan.md 第 3 步)。
 ///
-/// 接口说明：返回**度**，与坐标类型一致；内部式子是角秒。
-pub fn nutation_longitude(jde_tt: f64) -> f64 {
+/// 返回**度**，与坐标类型一致；内部式子是角秒。
+///
+/// crate 内部用（[`Ecliptic::apparent`] 与太阳视黄经）；外部尚无人需要，
+/// 故暂不公开。等第 3 步把它换成拟合级数、并加上 Δε 时再考虑。
+pub(crate) fn nutation_longitude(jde_tt: f64) -> f64 {
     let t = (jde_tt - J2000) / 36525.0;
     let om = (125.04452 - 1934.136261 * t + 0.0020708 * t * t + t * t * t / 450000.0) * D2R;
     let ls = (280.4665 + 36000.7698 * t) * D2R;
