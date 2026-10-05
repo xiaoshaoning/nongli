@@ -1,82 +1,145 @@
-//! 月球理论：ELP2000-82B 截断级数 (Meeus 第 47 章)。
+//! 月球理论：**ELP2000-82B**（Chapront-Touzé, Chapront & Francou 1985；
+//! 2002 年按 LLR 重定轨道参数）。
 //!
-//! **这里是整个 crate 的理论之"缝"。** 将来换成 ELP/MPP02 或由 DE440 拟合的
-//! 级数时，只需替换 [`moon_geocentric`]，参考系归算与所有调用方不动。
+//! **这里是整个 crate 的理论之"缝"。** 系数取自 `third_party/elp2000-82b/`
+//! （MIT），按作者标注截断到 0.001″ / 0.001 km，36 张表共 3402 项。
+//! 换更细的截断、或换 ELP/MPP02，都只需替换 [`moon_geocentric`]。
 //!
-//! 精度：对 ELP/MPP02，1950–2100 为 **RMS 2.9″、最坏 18.3″**
-//! （位置 6.1 km / 31.7 km）。见 `docs/plan.md` 第 0 节。
+//! 此前用的是 Meeus《Astronomical Algorithms》第 47 章那 60 项截断级数
+//! （对 ELP/MPP02 的标称精度 RMS 2.9″、最坏 18.3″）。换过来的实测收益见
+//! `docs/plan.md`，量它的工具是 `tools/truthcheck.py`（对 JPL 真值）。
 
-use crate::angle::{norm180, norm360, newton, D2R};
-use crate::frames::{dynamical_to_iau2006_lon_offset_deg, Ecliptic};
+use crate::angle::{norm180, norm360, newton, D2R, R2D};
+// 通配导入：这里 36 张表 + 类型 + 常数全部都用得上，逐个列反而更难核对。
+use crate::elp2000_tables::*;
+use crate::frames::{precession_in_longitude, Ecliptic};
 use crate::sun::sun_geometric_longitude;
-use crate::tables::{MOON_LAT, MOON_LON};
 use crate::time::{Instant, J2000};
 
 /// 平朔望月，日。
 const SYNODIC_MONTH_DAYS: f64 = 29.530588861;
 /// J2000 附近的一次朔，作为 [`new_moon`] 序号 `k = 0` 的参考。
 const EPOCH_NEW_MOON_JDE: f64 = 2451550.09766;
-/// 地心平均距离，km；Meeus 47 的 Σr 以此为基准。
-const MEAN_DISTANCE_KM: f64 = 385000.56;
+/// 角秒 → 弧度。ELP2000 的引数与振幅都以角秒给出（距离以 km）。
+const ARCSEC: f64 = core::f64::consts::PI / 648000.0;
 
-/// 五个基本引数 (D, M, M', F) 与三个附加引数 A1, A2, A3、偏心率因子 E。
+/// W1、W2、W3、T、ϖ′ 的多项式（弧秒），取到 `deg` 阶。
 ///
-/// Meeus 47.1–47.6。单独抽出来是因为经度、纬度、附加项都要用它们，
-/// 且都只应在**同一次**求值里算一遍。
-struct Arguments {
-    lprime: f64,
-    d: f64,
-    m: f64,
-    mprime: f64,
-    f: f64,
-    a1: f64,
-    a2: f64,
-    a3: f64,
+/// ELP2000 内部两处用**不同阶数**：主问题（ELP01-03）用完整的 5 阶，
+/// 其余各表只用常数与一次项。这是理论本身的分工（扰动项的频率不需要那么准），
+/// 不是我们做的近似。
+fn argument_polynomials(t: f64, deg: usize) -> [f64; 5] {
+    let mut out = [0.0; 5];
+    for (o, c) in out.iter_mut().zip(ELP_ARG_POLY.iter()) {
+        let (mut tn, mut v) = (1.0, 0.0);
+        for &ck in c.iter().take(deg) {
+            v += ck * tn;
+            tn *= t;
+        }
+        *o = v;
+    }
+    out
+}
+
+/// 四个 Delaunay 引数 `(D, l′, l, F)`，弧秒。
+fn delaunay(p: &[f64; 5]) -> [f64; 4] {
+    [
+        p[0] - p[3] + 648000.0, // D = W1 − T + 648000
+        p[3] - p[4],            // l′ = T − ϖ′   太阳平近点角
+        p[0] - p[1],            // l  = W1 − W2  月球平近点角
+        p[0] - p[2],            // F  = W1 − W3  升交点角距
+    ]
+}
+
+/// 主问题表里 `A` 的拟合改正量（ELP2000 第 7 节，拟合到 DE200/LE200）。
+///
+/// `nu`、`np` 是**速率**的相对改正（所以除以 W1 的一次项），其余是角量。
+struct Corrections {
+    nu: f64,
+    np: f64,
+    gamma: f64,
     e: f64,
+    ep: f64,
 }
 
-fn arguments(tt_jd: f64) -> Arguments {
-    let t = (tt_jd - J2000) / 36525.0;
-    let t2 = t * t;
-    let t3 = t2 * t;
-    let t4 = t3 * t;
-    Arguments {
-        lprime: 218.3164477 + 481267.88123421 * t - 0.0015786 * t2 + t3 / 538841.0
-            - t4 / 65194000.0,
-        d: 297.8501921 + 445267.1114034 * t - 0.0018819 * t2 + t3 / 545868.0
-            - t4 / 113065000.0,
-        m: 357.5291092 + 35999.0502909 * t - 0.0001536 * t2 + t3 / 24490000.0,
-        mprime: 134.9633964 + 477198.8675055 * t + 0.0087414 * t2 + t3 / 69699.0
-            - t4 / 14712000.0,
-        f: 93.2720950 + 483202.0175233 * t - 0.0036539 * t2 - t3 / 3526000.0
-            + t4 / 863310000.0,
-        a1: 119.75 + 131.849 * t,
-        a2: 53.09 + 479264.290 * t,
-        a3: 313.45 + 481266.484 * t,
-        e: 1.0 - 0.002516 * t - 0.0000074 * t2,
+impl Corrections {
+    fn new() -> Self {
+        let n = ELP_ARG_POLY[0][1];
+        Self {
+            nu: ELP_DELTANU_ARCSEC * ARCSEC / n,
+            np: ELP_DELTANP_ARCSEC * ARCSEC / n,
+            gamma: ELP_DELTAGAMMA_ARCSEC * ARCSEC,
+            e: ELP_DELTAE_ARCSEC * ARCSEC,
+            ep: ELP_DELTAEP_ARCSEC * ARCSEC,
+        }
     }
 }
 
-/// `M` 的幂次对应的偏心率因子 E^|M|（Meeus 47.6）。
-fn eccentricity_factor(m: i8, e: f64) -> f64 {
-    match m {
-        1 | -1 => e,
-        2 | -2 => e * e,
-        _ => 1.0,
+/// 主问题（ELP01-03）：`Σ A′·sin(i1·D + i2·l′ + i3·l + i4·F)`。
+///
+/// `cosine` 为真时改算 `cos`——ELP03 给的是距离，用的是余弦级数。
+/// `A′` 是在 `A` 上加按 DE200/LE200 拟合的改正；距离那条还多一个 `−2/3·A·δν`。
+fn main_problem_sum(terms: &[ElpMainTerm], d: &[f64; 4], cosine: bool, c: &Corrections) -> f64 {
+    let mut s = 0.0;
+    for &(i1, i2, i3, i4, a, b1, b2, b3, b4, b5, _b6) in terms {
+        let mut amp = a
+            + (b1 + ELP_DTASM * b5) * (c.np - ELP_AM * c.nu)
+            + b2 * c.gamma
+            + b3 * c.e
+            + b4 * c.ep;
+        if cosine {
+            amp -= 2.0 / 3.0 * a * c.nu;
+        }
+        let arg =
+            (i1 as f64 * d[0] + i2 as f64 * d[1] + i3 as f64 * d[2] + i4 as f64 * d[3]) * ARCSEC;
+        s += amp * if cosine { arg.cos() } else { arg.sin() };
     }
+    s
 }
 
-impl Arguments {
-    /// 一项的引数 `i·D + j·M + k·M' + l·F`，弧度。
-    ///
-    /// 经度表与纬度表共用同一个组合方式，所以只写一次。
-    fn term_angle(&self, cd: i8, cm: i8, cmp: i8, cf: i8) -> f64 {
-        (cd as f64 * self.d
-            + cm as f64 * self.m
-            + cmp as f64 * self.mprime
-            + cf as f64 * self.f)
-            * D2R
+/// 非行星扰动（ELP04-09、ELP22-36）：
+/// `Σ A·sin(i1·ζ + i2·D + i3·l′ + i4·l + i5·F + φ)`，`φ` 为度。
+///
+/// 潮汐、月体形状、相对论、太阳偏心率几组（ELP22-36）不含 ζ，调用时传 0。
+fn non_planetary_sum(terms: &[ElpTerm], zeta: f64, d: &[f64; 4]) -> f64 {
+    let mut s = 0.0;
+    for &(i1, i2, i3, i4, i5, phi, a) in terms {
+        let arg = (i1 as f64 * zeta
+            + i2 as f64 * d[0]
+            + i3 as f64 * d[1]
+            + i4 as f64 * d[2]
+            + i5 as f64 * d[3])
+            * ARCSEC
+            + phi * D2R;
+        s += a * arg.sin();
     }
+    s
+}
+
+/// 行星扰动（ELP10-21）：前七个乘子作用于七颗行星的平黄经，后四个作用于 `tail`。
+///
+/// 两张表的**结构完全相同**，只是后四项的含义不同，所以一个函数就够——
+/// 表 1（ELP10-15）的 `tail` 是 `[海王星, D, l, F]`，表 2（ELP16-21）是 `[D, l′, l, F]`。
+/// 这样调用处直接看得出"这张表的后四项是什么"，不必写两个近乎一样的求和。
+fn planetary_sum(terms: &[ElpPlanetaryTerm], planets: &[f64; 7], tail: [f64; 4]) -> f64 {
+    let mut s = 0.0;
+    for &(i1, i2, i3, i4, i5, i6, i7, i8, i9, i10, i11, phi, a) in terms {
+        let arg = (i1 as f64 * planets[0]
+            + i2 as f64 * planets[1]
+            + i3 as f64 * planets[2]
+            + i4 as f64 * planets[3]
+            + i5 as f64 * planets[4]
+            + i6 as f64 * planets[5]
+            + i7 as f64 * planets[6]
+            + i8 as f64 * tail[0]
+            + i9 as f64 * tail[1]
+            + i10 as f64 * tail[2]
+            + i11 as f64 * tail[3])
+            * ARCSEC
+            + phi * D2R;
+        s += a * arg.sin();
+    }
+    s
 }
 
 /// 月球地心**黄道**位置。
@@ -88,50 +151,117 @@ impl Arguments {
 /// | 参考点 | **地心** |
 /// | 参考面/点 | **平**黄道、**平**分点（*不是*真分点）|
 /// | 章动 | **不含**——要真分点用 [`Ecliptic::apparent`] |
-/// | 光行时 | **已含**（Meeus 第 47 章所给即如此）|
+/// | 光行时 | **不含**（ELP2000-82B 给的就是时刻 `t` 的几何位置）|
 /// | 单位 | 度、度、km；经度归化到 [0,360) |
 ///
-/// 关于光行时：SOFA 的 `eraMoon98` 文档明说它实现 Meeus 时**省略了对月球平黄经的
-/// 光行时改正**，因此本函数的黄经与该例程有约 **−0.70″** 的系统差。这不是误差，
-/// 用 `erfa.moon98` 对拍时必须先扣掉（`cargo run -p ephemeris --example moon_check`
-/// 会把它量出来）。
-pub fn moon_geocentric(t: Instant) -> Ecliptic {
-    let a = arguments(t.tt_jd());
-    // 附加项里反复出现这两个，给个短名字免得到处写 a.
-    let (mp, f) = (a.mprime, a.f);
+/// 参考面是 **IAU 2006** 的当日平黄道。ELP2000 原始输出的口径不统一
+/// （黄经以 J2000 平春分点起算、黄纬已按当日黄道），见函数体的说明。
+///
+/// 关于光行时：Meeus 第 47 章那份截断级数把月球平黄经的光行时包进去了，
+/// 所以 SOFA 的 `eraMoon98` 与它有约 −0.70″ 的系统差。ELP2000-82B 不含，
+/// 与 JPL 的几何位置同口径——换用它之后**不该**再扣那 −0.70″。
+fn elp_position(tc: f64) -> Ecliptic {
+    let p_full = argument_polynomials(tc, 5);
+    let p_lin = argument_polynomials(tc, 2);
+    let d_full = delaunay(&p_full);
+    let d_lin = delaunay(&p_lin);
+    // ζ：岁差角，只进 ELP04-09（地球形状摄动）
+    let zeta = ELP_ARG_POLY[0][0] + tc * (ELP_ARG_POLY[0][1] + ELP_PRECESSION_CONSTANT);
+    // 八颗行星的平黄经
+    let planets: [f64; 8] =
+        core::array::from_fn(|i| ELP_PLANET_POLY[i][0] + ELP_PLANET_POLY[i][1] * tc);
+    // 行星表 1 与 2 的后四项（见 planetary_sum）
+    let p7: &[f64; 7] = planets[..7].try_into().unwrap(); // 长度由类型保证
+    let tail1 = [planets[7], d_lin[0], d_lin[2], d_lin[3]];
+    let tail2 = d_lin; // 表 2 的后四项就是四个 Delaunay 引数本身
 
-    let mut sl = 0.0; // 1e-6 度
-    let mut sr = 0.0; // 1e-3 km
-    for &(cd, cm, cmp, cf, cl, cr) in MOON_LON {
-        let (w, arg) = (eccentricity_factor(cm, a.e), a.term_angle(cd, cm, cmp, cf));
-        sl += cl as f64 * w * arg.sin();
-        sr += cr as f64 * w * arg.cos();
-    }
-    // 附加项 (Meeus 47.7)
-    sl += 3958.0 * (a.a1 * D2R).sin()
-        + 1962.0 * ((a.lprime - f) * D2R).sin()
-        + 318.0 * (a.a2 * D2R).sin();
+    let c = Corrections::new();
+    let t2 = tc * tc;
 
-    let mut sb = 0.0; // 1e-6 度
-    for &(cd, cm, cmp, cf, cb) in MOON_LAT {
-        let (w, arg) = (eccentricity_factor(cm, a.e), a.term_angle(cd, cm, cmp, cf));
-        sb += cb as f64 * w * arg.sin();
-    }
-    // 附加项 (Meeus 47.8)
-    sb += -2235.0 * (a.lprime * D2R).sin()
-        + 382.0 * (a.a3 * D2R).sin()
-        + 175.0 * ((a.a1 - f) * D2R).sin()
-        + 175.0 * ((a.a1 + f) * D2R).sin()
-        + 127.0 * ((a.lprime - mp) * D2R).sin()
-        - 115.0 * ((a.lprime + mp) * D2R).sin();
+    // 下面三块按 ELP2000 的表结构逐项相加（黄经用第 1 类表、黄纬第 2 类、距离第 0 类），
+    // 每项后面的因子是 T 的幂。写法与原始表一一对应，不做归并——这张表就是理论本身。
+    let lon_as = main_problem_sum(ELP01, &d_full, false, &c)
+        + p_full[0]
+        + non_planetary_sum(ELP04, zeta, &d_lin)
+        + non_planetary_sum(ELP07, zeta, &d_lin) * tc
+        + planetary_sum(ELP10, p7, tail1)
+        + planetary_sum(ELP13, p7, tail1) * tc
+        + planetary_sum(ELP16, p7, tail2)
+        + planetary_sum(ELP19, p7, tail2) * tc
+        + non_planetary_sum(ELP22, 0.0, &d_lin)
+        + non_planetary_sum(ELP25, 0.0, &d_lin) * tc
+        + non_planetary_sum(ELP28, 0.0, &d_lin)
+        + non_planetary_sum(ELP31, 0.0, &d_lin)
+        + non_planetary_sum(ELP34, 0.0, &d_lin) * t2;
 
+    let lat_as = main_problem_sum(ELP02, &d_full, false, &c)
+        + non_planetary_sum(ELP05, zeta, &d_lin)
+        + non_planetary_sum(ELP08, zeta, &d_lin) * tc
+        + planetary_sum(ELP11, p7, tail1)
+        + planetary_sum(ELP14, p7, tail1) * tc
+        + planetary_sum(ELP17, p7, tail2)
+        + planetary_sum(ELP20, p7, tail2) * tc
+        + non_planetary_sum(ELP23, 0.0, &d_lin)
+        + non_planetary_sum(ELP26, 0.0, &d_lin) * tc
+        + non_planetary_sum(ELP29, 0.0, &d_lin)
+        + non_planetary_sum(ELP32, 0.0, &d_lin)
+        + non_planetary_sum(ELP35, 0.0, &d_lin) * t2;
+
+    let dist_km = main_problem_sum(ELP03, &d_full, true, &c)
+        + non_planetary_sum(ELP06, zeta, &d_lin)
+        + non_planetary_sum(ELP09, zeta, &d_lin) * tc
+        + planetary_sum(ELP12, p7, tail1)
+        + planetary_sum(ELP15, p7, tail1) * tc
+        + planetary_sum(ELP18, p7, tail2)
+        + planetary_sum(ELP21, p7, tail2) * tc
+        + non_planetary_sum(ELP24, 0.0, &d_lin)
+        + non_planetary_sum(ELP27, 0.0, &d_lin) * tc
+        + non_planetary_sum(ELP30, 0.0, &d_lin)
+        + non_planetary_sum(ELP33, 0.0, &d_lin)
+        + non_planetary_sum(ELP36, 0.0, &d_lin) * t2;
+
+    // ELP2000-82B 的输出是**混合口径**，这一点参考实现（名字叫 `...OfDate`）没说清：
+    //   * 黄经以 **J2000 平春分点** 起算（它的 W1 是恒星黄经，不含岁差）；
+    //   * 黄纬**已经**是按当日黄道。
+    // 实测（对 JPL DE421，1900–2050）：这样理解后 Δλ 中位 0.05″、Δβ 中位 0.06″；
+    // 若当成"整块都是黄道 J2000"再整体做岁差，Δβ 会差到 46″。
+    // 所以只补黄经岁差，黄纬不动。
     Ecliptic {
-        // ELP2000-82B 同样给在它自己的当日黄道里，一并与太阳换算到 IAU 2006——
-        // 两边用**同一个**改正，"朔"的黄经之差才不受影响（否则会引入 ~0.3″ 的漂移）。
-        lon_deg: norm360(a.lprime + sl / 1e6 + dynamical_to_iau2006_lon_offset_deg(t)),
-        lat_deg: sb / 1e6,
-        distance_km: MEAN_DISTANCE_KM + sr / 1000.0,
+        lon_deg: norm360(lon_as * ARCSEC * R2D),
+        lat_deg: lat_as * ARCSEC * R2D,
+        distance_km: dist_km,
     }
+}
+
+/// 光速，km/s。
+const C_KM_S: f64 = 299_792.458;
+
+/// 月球地心**视**位置（用于农历）。
+///
+/// 在 `elp_position`（私有的纯 ELP2000 求值）的**几何**位置之后补两件观测效应：
+///
+/// 1. **光行时**：看到的是 τ = Δ/c ≈ 1.28 s 之前的月球。ELP2000-82B 给的是几何位置
+///    （Meeus 第 47 章那份截断级数倒是把这一项包进去了），所以换用它之后必须自己补，
+///    否则"朔"会漂 ~1.4 s。做法就是**在 t−τ 处重算一遍**——τ 依赖 Δ，而 Δ 依赖位置，
+///    所以先算一次拿 Δ，再算一次取结果。
+/// 2. **周年光行差**：与太阳同一个量级（≈20.5″）。对"朔"（日月视黄经之差）它会抵消，
+///    但绝对黄经要用它才对得上 JPL 的 apparent 位置。
+pub fn moon_geocentric(t: Instant) -> Ecliptic {
+    let tc = (t.tt_jd() - J2000) / 36525.0;
+    let first = elp_position(tc);
+    // 光行时（天）：τ = Δ/c
+    let tau_days = first.distance_km / C_KM_S / 86400.0;
+    let mut e = elp_position(tc - tau_days / 36525.0);
+    // 把几何距离留成第一次的那个：光行时对 Δ 的影响只有 ~0.06 km，不值得再算
+    e.distance_km = first.distance_km;
+    // 周年光行差：**与太阳同一个量、同一个符号**——观测者速度对两个天体是同一个
+    // 矢量，所以黄经上的位移也相同（约 −20.5″）。这里曾写成减号，结果月球被
+    // 推向太阳的反方向，两者的光行差不但没抵消，还叠成两倍，"朔"整差 ~80 s。
+    e.lon_deg = norm360(e.lon_deg + crate::sun::sun_aberration_deg(t));
+    // 黄经岁差（ELP 的恒星口径 → 当日平春分点）。放这里而不是 elp_position 里，
+    // 是因为它只需要 t：用 t 还是 t−τ 差 3e-9″，不必较真。
+    e.lon_deg = norm360(e.lon_deg + precession_in_longitude(t) * R2D);
+    e
 }
 
 /// 月球地心视黄经 (度，[0,360)，真分点起算)。
@@ -153,7 +283,7 @@ pub fn new_moon(k: i64) -> Instant {
         - 0.000000150 * t * t * t
         + 0.00000000073 * t * t * t * t;
     // 这里**故意不用**视黄经：朔的条件是日月视黄经相等，而章动 Δψ 对两者是同一个量、
-    // 作差时精确抵消。少算两遍 IAU 2000A 章动（约 22 µs），根一模一样。
+    // 作差时精确抵消。少算两遍 IAU 2000A 章动，根一模一样。
     // 太阳的周年光行差**不能**省——它只作用于太阳。
     let f = |x: f64| {
         let i = Instant::from_tt(x);
@@ -190,21 +320,25 @@ pub struct Libration {
 
 /// 由"观测者到月球"的**黄道方向**算月面中心经纬度。
 ///
-/// 私有：目前只有[`libration`]一个消费者。将来做**周日天平动**（观测者不在地心）
+/// 私有：目前只有 [`libration`] 一个消费者。将来做**周日天平动**（观测者不在地心）
 /// 时会需要它——那时再公开，成本是一行。第 3 步就是在这个模式上栽过
 /// （`fukushima_williams`，靠"以后要用"留着，已删）。
 ///
 /// `lon_deg` 用当日**平**分点起算的几何黄经——**不要**加章动。实测：Meeus 例 53.a
-/// 的 l' 是 −1.206°，加了 Δψ（该历元 16.6″）会得到 −1.201°，不加则 −1.2056°。
-/// 原因也说得通：Ω = L' − F 本身就在平分点体系里，两边必须同口径。
+/// 的 l′ 是 −1.206°，加了 Δψ（该历元 16.6″）会得到 −1.201°，不加则 −1.2056°。
+/// 原因也说得通：Ω 本身就在平分点体系里，两边必须同口径。
 fn libration_from_direction(lon_deg: f64, lat_deg: f64, t: Instant) -> Libration {
-    use crate::angle::{norm180, D2R, R2D};
     /// 月球赤道对黄道的倾角（Cassini 定律），度。
     const I_DEG: f64 = 1.54242;
 
-    let a = arguments(t.tt_jd());
-    // 月球轨道升交点黄经 = L' − F
-    let om = (a.lprime - a.f).to_radians();
+    // 升交点黄经 Ω = W3。用 ELP2000 自己的 W3，不再为这一个量另留一套引数。
+    //
+    // **要加黄经岁差**：W3 与 ELP 的 W1 一样是恒星口径（J2000 春分点起算），
+    // 而传进来的方向已经换算到当日系了，两者不同口径会让 l′ 整差一个 p(T)
+    // （1992 年 ~0.108°）。漏掉这一项时 Meeus 例 53.a 会差 0.108°，一眼可见。
+    let p = argument_polynomials((t.tt_jd() - J2000) / 36525.0, 5);
+    let om = p[2] * ARCSEC + precession_in_longitude(t); // 弧度
+    let f = (p[0] - p[2]) * ARCSEC; // F = W1 − W3，弧度
     let (lam, bet) = (lon_deg * D2R, lat_deg * D2R);
     let inc = I_DEG * D2R;
     let w = lam - om; // 月球黄经与升交点黄经之差
@@ -212,7 +346,7 @@ fn libration_from_direction(lon_deg: f64, lat_deg: f64, t: Instant) -> Libration
     // Meeus 53.1–53.4
     let big_a =
         (w.sin() * bet.cos() * inc.cos() - bet.sin() * inc.sin()).atan2(w.cos() * bet.cos());
-    let l = big_a - a.f.to_radians();
+    let l = big_a - f;
     let b = (-w.sin() * bet.cos() * inc.sin() - bet.sin() * inc.cos())
         .clamp(-1.0, 1.0)
         .asin();
@@ -241,17 +375,32 @@ pub fn new_moon_index_near(t: Instant) -> i64 {
 mod tests {
     use super::*;
 
-    /// Meeus 例 47.a：1992-04-12.0 TD。三个量都要对上。
+    /// 对 **JPL DE421** 的真值（1900–2050 都在它的覆盖内）。
+    ///
+    /// 真值由 `tools/truthcheck.py` 那套算法算出后写死在这里——测试不该依赖
+    /// `kernels/` 里那个不进版本库的文件。表里是**视**位置：月球的光行时按
+    /// Δ/c 前推、再加周年光行差，与 `moon_geocentric` 的口径逐条对应。
+    /// 容差 0.2″ / 0.05 km：实测三个历元的偏差是 0.02″–0.05″、0.009–0.028 km。
+    ///
+    /// 原先这里是 Meeus 例 47.a。换成 JPL 是因为**那个例子的值来自 Meeus 那 60 项
+    /// 截断级数**，与真值本来就差 1.2″/4.2 km——拿它当判据反而比我们的实现还松。
     #[test]
-    fn meeus_example_47a() {
-        let e = moon_geocentric(Instant::from_tt(2448724.5));
-        assert!((e.lon_deg - 133.162655).abs() < 1e-5, "λ={}", e.lon_deg);
-        assert!((e.lat_deg - -3.229126).abs() < 1e-5, "β={}", e.lat_deg);
-        assert!(
-            (e.distance_km - 368409.7).abs() < 0.5,
-            "Δ={}",
-            e.distance_km
-        );
+    fn matches_jpl_de421() {
+        for (jd, lam, bet, dist) in [
+            (2448724.5, 133.156433018, -3.229189660, 368405.5430),
+            (2451545.0, 223.312951927, 5.170871895, 402448.6401),
+            (2469807.5, 18.654779809, 3.391949445, 378667.6805),
+        ] {
+            let e = moon_geocentric(Instant::from_tt(jd));
+            let arcsec = |a: f64, b: f64| norm180(a - b).abs() * 3600.0;
+            assert!(arcsec(e.lon_deg, lam) < 0.2, "jd={jd} dλ={}", arcsec(e.lon_deg, lam));
+            assert!(arcsec(e.lat_deg, bet) < 0.2, "jd={jd} dβ={}", arcsec(e.lat_deg, bet));
+            assert!(
+                (e.distance_km - dist).abs() < 0.05,
+                "jd={jd} dΔ={}",
+                e.distance_km - dist
+            );
+        }
     }
 
     #[test]
@@ -266,12 +415,16 @@ mod tests {
 
     /// Meeus 例 53.a：1992-04-12.0 TD。天平动两个分量。
     ///
-    /// 注意这里用的是**平**黄经（不加章动）——见 `libration_from_direction` 的说明。
+    /// 这里用的是**平**黄经（不加章动）——见 `libration_from_direction` 的说明。
+    ///
+    /// 容差 0.008° 而不是 0.002°：`libration` 吃的是 `moon_geocentric` 的**视**方向
+    /// （含 ~20″ 周年光行差），而 Meeus 53.a 给的是**几何**方向。20″ 折合 0.0056°，
+    /// 在月面上约 37 km，显示上无所谓，但正好超出原来那个容差。
     #[test]
     fn meeus_example_53a() {
         let l = libration(Instant::from_tt(2448724.5));
-        assert!((l.lon_deg - -1.206).abs() < 0.002, "l'={}", l.lon_deg);
-        assert!((l.lat_deg - 4.194).abs() < 0.002, "b'={}", l.lat_deg);
+        assert!((l.lon_deg - -1.206).abs() < 0.008, "l′={}", l.lon_deg);
+        assert!((l.lat_deg - 4.194).abs() < 0.008, "b′={}", l.lat_deg);
     }
 
     /// 天平动的**自洽**检查，不依赖外部参考值：

@@ -41,7 +41,7 @@ mod angle;
 
 // 级数中的相位常数形如 3.14 / 3.142，并非圆周率，clippy 的近似常数检查在此无意义。
 #[allow(clippy::approx_constant)]
-pub(crate) mod tables;
+pub(crate) mod elp2000_tables;
 
 #[allow(clippy::approx_constant)]
 pub(crate) mod frames_tables;

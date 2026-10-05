@@ -85,15 +85,24 @@ def main():
         d_dist[i] = (sun_rows[i, 3] - r / AU_KM) * AU_KM
 
     # === 月球 ===
+    # 我们的 moon_geocentric 给的是**视**位置：先在 t−τ 处取几何位置（光行时），
+    # 再加周年光行差——与 crates/ephemeris/src/moon.rs 逐条对应。
     jdm = moon_rows[:, 0]
     d_lon = np.empty(len(jdm))
     d_lat = np.empty(len(jdm))
     d_km = np.empty(len(jdm))
     for i, j in enumerate(jdm):
-        g = moon(j) - earth(j)
-        r = np.linalg.norm(g)
-        w = erfa.ecm06(j, 0.0) @ (g / r)
-        d_lon[i] = wrap(moon_rows[i, 1] - np.degrees(np.arctan2(w[1], w[0]))) * 3600.0
+        r = np.linalg.norm(moon(j) - earth(j))
+        tau = r / 299792.458 / 86400.0          # 天
+        js = j - tau
+        g = moon(js) - earth(js)
+        w = erfa.ecm06(j, 0.0) @ (g / np.linalg.norm(g))
+        lam = np.degrees(np.arctan2(w[1], w[0])) % 360.0
+        # 周年光行差只与**地球绕日**的速度有关，所以用日地距离而不是月地距离
+        # （这里曾写错过：用月地距离 0.0026 AU 代进去会得到 7900"）。
+        r_sun = np.linalg.norm(sun(j) - earth(j))
+        lam -= 20.4898 / (r_sun / AU_KM) / 3600.0   # 与太阳同号（负）
+        d_lon[i] = wrap(moon_rows[i, 1] - lam) * 3600.0
         d_lat[i] = (moon_rows[i, 2] - np.degrees(np.arcsin(w[2]))) * 3600.0
         d_km[i] = moon_rows[i, 3] - r
 

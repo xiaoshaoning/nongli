@@ -12,7 +12,7 @@
 
 use crate::angle::{norm360, D2R, R2D};
 use crate::ecliptic_frame_tables::DYNAMICAL_TO_IAU2006_LON_ARCSEC;
-use crate::frames_tables::EPSA;
+use crate::frames_tables::{EPSA, GAMB, PHIB, PSIB};
 use crate::nutation_tables::{NUT_LS, NUT_PL};
 use crate::time::{Instant, J2000};
 
@@ -297,8 +297,9 @@ fn true_obliquity_with(t: Instant, n: Nutation) -> f64 {
 // 但只有 ε_A（EPSA）有人用——`mean_obliquity` 需要它。
 //
 // 另外三个角是把"当日"化到 J2000/ICRS 时才需要的。目前没有任何消费者：
-// 地平坐标、恒星时都在"当日"系里，用不上岁差。等真要做 ICRS 输出
-// （例如把月球画到星图上）再让生成器把它们一并输出即可，成本是一行。
+// 地平坐标、恒星时都在"当日"系里。",
+// 第 7 步换 ELP2000-82B 时发现它给的是**黄道 J2000**，于是这四个角终于有了
+// 消费者：拼出 fw2m 的旋转矩阵才能把它化到当日。下面那几行就是那时的"一行"。
 //
 // 之前这里放过一个 `fukushima_williams()`，靠"它已经验证过了"留着——那是拿
 // 沉没成本给死代码找理由，已删。
@@ -308,6 +309,74 @@ fn true_obliquity_with(t: Instant, n: Nutation) -> f64 {
 fn poly_arcsec(c: &[f64; 6], t: Instant) -> f64 {
     let x = (t.tt_jd() - J2000) / 36525.0;
     c.iter().fold(0.0, |acc, &k| acc * x + k)
+}
+
+// ===== 把黄道 J2000 化到当日黄道 =====
+
+/// 3×3 矩阵，行主序。只在本模块内部用来拼岁差旋转。
+type Mat3 = [[f64; 3]; 3];
+
+/// ERFA 的 `eraRz`：绕 z 轴转 `a`。
+///
+/// **符号约定与教科书常见的差一个转置**：ERFA 的 `Rx(a)` 是 `[1][2] = +sin`。
+/// 这里照抄 ERFA，好与 `erfa.ecm06` 逐个矩阵对拍（踩过一次：自己那个方向的
+/// `Rx` 把黄道 J2000 算成了差 30800″ 的东西）。
+fn rz(a: f64) -> Mat3 {
+    let (s, c) = a.sin_cos();
+    [[c, s, 0.0], [-s, c, 0.0], [0.0, 0.0, 1.0]]
+}
+
+/// ERFA 的 `eraRx`：绕 x 轴转 `a`。符号约定见 [`rz`]。
+fn rx(a: f64) -> Mat3 {
+    let (s, c) = a.sin_cos();
+    [[1.0, 0.0, 0.0], [0.0, c, s], [0.0, -s, c]]
+}
+
+fn mat_mul(a: &Mat3, b: &Mat3) -> Mat3 {
+    let mut m = [[0.0; 3]; 3];
+    for (i, row) in m.iter_mut().enumerate() {
+        for (j, v) in row.iter_mut().enumerate() {
+            *v = (0..3).map(|k| a[i][k] * b[k][j]).sum();
+        }
+    }
+    m
+}
+
+fn mat_vec(m: &Mat3, v: [f64; 3]) -> [f64; 3] {
+    core::array::from_fn(|i| (0..3).map(|k| m[i][k] * v[k]).sum())
+}
+
+/// 黄道 J2000 → IAU 2006 当日平黄道的旋转矩阵。
+///
+/// 复合式：`Rx(ε_A) · fw2m(γ̄,φ̄,ψ̄,ε_A) · Rx(−ε₀)`。
+/// 中间那个就是 SOFA 的 `pmat06`（= `fw2m(pfw06)`；frame bias 已含在 φ̄ 里，
+/// 不再另乘），所以本函数与 `erfa.ecm06` 只差最右边那个 `Rx(−ε₀)`。
+fn mat_ecliptic_j2000_to_date(t: Instant) -> Mat3 {
+    let as2r = D2R / 3600.0;
+    let (gamb, phib, psib, epsa) = (
+        poly_arcsec(&GAMB, t) * as2r,
+        poly_arcsec(&PHIB, t) * as2r,
+        poly_arcsec(&PSIB, t) * as2r,
+        poly_arcsec(&EPSA, t) * as2r,
+    );
+    // fw2m：R = Rx(−ε)·Rz(−ψ)·Rx(φ)·Rz(γ)，每一步都**左乘**
+    let mut fw = rz(gamb);
+    fw = mat_mul(&rx(phib), &fw);
+    fw = mat_mul(&rz(-psib), &fw);
+    fw = mat_mul(&rx(-epsa), &fw);
+    // 输入是黄道 J2000，先用 J2000 的平黄赤交角转到赤道 J2000
+    let eps0 = poly_arcsec(&EPSA, Instant::from_tt(J2000)) * as2r;
+    mat_mul(&rx(epsa), &mat_mul(&fw, &rx(-eps0)))
+}
+
+/// 累积黄经岁差 p(T)，弧度：J2000 平春分点在**当日**平黄道里的黄经。
+///
+/// 定义上就是"从 J2000 到当日，春分点在黄道上走了多少"。不另立多项式，
+/// 直接拿上面那个**已验证等于 `erfa.ecm06` 复合式**的矩阵作用在 J2000 春分点
+/// 方向 (1,0,0) 上——这样它只可能和矩阵一起对或一起错。
+pub(crate) fn precession_in_longitude(t: Instant) -> f64 {
+    let v = mat_vec(&mat_ecliptic_j2000_to_date(t), [1.0, 0.0, 0.0]);
+    v[1].atan2(v[0])
 }
 
 #[cfg(test)]

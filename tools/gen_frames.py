@@ -238,8 +238,9 @@ def emit(prec, res):
     L.append('// 黄赤交角：IAU2006 Fukushima–Williams 的 EPSA 角。**对 erfa.pfw06 拟合**得到')
     L.append('// 5 次多项式，故系数是被复原的而不是凭记忆抄的。单位角秒，T 为儒略世纪，降幂。')
     L.append('//')
-    L.append('// 另三个 FW 角（γ̄、φ̄、ψ̄）已在生成时拟合并验证（±200 世纪内差 2.3e-8″），')
-    L.append('// 但没有消费者，故不输出——只有把"当日"化到 ICRS 时才需要。见 src/frames.rs。')
+    L.append('// 四个 FW 角都输出：把**黄道 J2000** 化到当日黄道要拼 fw2m 的旋转矩阵，')
+    L.append('// 它同时需要 γ̄、φ̄、ψ̄ 与 ε_A。IAU 2006 的 pmat06 就等于 fw2m(pfw06)，')
+    L.append('// 归算矩阵里不再另乘 frame bias——bias 已含在 φ̄ 里。见 src/frames.rs。')
     L.append('//')
     L.append('// 章动**不在本文件里**：缩写式写在 src/frames.rs。')
     L.append('// 本脚本里有一段"对 erfa.nut06a 拟合更好章动级数"的代码，**结论是失败**：')
@@ -248,8 +249,8 @@ def emit(prec, res):
     L.append('// 那段代码保留，是为了记录结论，并让将来拿到 IAU2000A 原始表时能对拍。')
     L.append('// 详见 docs/plan.md 第 3 步。')
     L.append('')
-    # 只输出 EPSA（黄赤交角）；另三个 FW 角无消费者，见 src/frames.rs。
-    for name in ['EPSA']:
+    # 四个 FW 角全输出；见文件头的说明。
+    for name in ['GAMB', 'PHIB', 'PSIB', 'EPSA']:
         c = prec[name]
         L.append(f'/// `{name}` 的多项式系数，角秒，T 的降幂 (T⁵ … T⁰)。')
         L.append(f'pub(crate) static {name}: [f64; 6] = [')

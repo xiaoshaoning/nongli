@@ -18,6 +18,13 @@ ROOT = os.path.join(HERE, os.pardir)
 AU_KM = 149597870.7
 
 
+# **注意（2026-10-05 起）：本工具里的月球参考现在已经比本实现差了。**
+# 上面用的 `erfa.moon98` / astropy builtin 对 JPL DE421 的月球黄经误差是
+# **中位 ~20″、最大 ~44″**；本实现是 **中位 0.044″、最大 0.11″**。所以月球相关的
+# 残差现在量的是**参考的误差**，不是我们的。要量我们的绝对精度请用
+# `tools/truthcheck.py`（对 JPL DE421 真值）。
+
+
 def main():
     out = subprocess.run(
         ['cargo', 'run', '--release', '--quiet', '-p', 'moon', '--example', 'phase_check'],
