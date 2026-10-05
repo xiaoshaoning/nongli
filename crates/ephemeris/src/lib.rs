@@ -47,6 +47,9 @@ pub(crate) mod tables;
 pub(crate) mod frames_tables;
 
 #[allow(clippy::approx_constant)]
+pub(crate) mod ecliptic_frame_tables;
+
+#[allow(clippy::approx_constant)]
 pub(crate) mod nutation_tables;
 
 #[allow(clippy::approx_constant)]

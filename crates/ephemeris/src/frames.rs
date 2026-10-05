@@ -11,6 +11,7 @@
 //! `nutation` 的文档与 `docs/plan.md` 第 3 步。
 
 use crate::angle::{norm360, D2R, R2D};
+use crate::ecliptic_frame_tables::DYNAMICAL_TO_IAU2006_LON_ARCSEC;
 use crate::frames_tables::EPSA;
 use crate::nutation_tables::{NUT_LS, NUT_PL};
 use crate::time::{Instant, J2000};
@@ -237,6 +238,31 @@ pub fn nutation(t: Instant) -> Nutation {
         dpsi_deg: dp * U2R * R2D,
         deps_deg: de * U2R * R2D,
     }
+}
+
+/// 从**动力学平黄道分点**到 **IAU 2006 平黄道分点**的黄经改正，度。
+///
+/// VSOP87D 与 ELP2000-82B 都把黄经给在**它们自带**的"当日动力学平黄道分点"里
+/// （1980 年代那套岁差），而本 crate 其余环节用 IAU 2006/P03。两者差一个随时间
+/// 平滑增长的微小角量，**在 J2000 处为零、向两侧线性增长**——对 JPL DE421 实测，
+/// 太阳视黄经的误差正是它（1900–1925 中位 −0.25″、2000–2025 +0.02″、2025–2050 +0.09″）。
+///
+/// 系数是拟合出来的，但**不是拿 DE421 拟合**：用的是 VSOP87 的另一个变体
+/// （VSOP87B，黄道 J2000）经 IAU 2006 岁差转回当日黄道，与 VSOP87D 作差——
+/// 两边同一套理论、同一个地球位置，所以只剩历元约定。交叉验证：一次项
+/// −0.30038″/世纪 与 IAU1976−IAU2006 的周年岁差速率差 0.300405″/世纪 差 0.009%。
+/// 见 `tools/gen_ecliptic_frame.py`。
+///
+/// 只改正黄经；两个黄极间的微小倾斜（全程 |Δβ| ≤ 2.1″）未建模，对月球
+/// （黄纬可达 ±5°）留 ~0.17″ 残差——比它自己的截断误差小一个量级。
+pub(crate) fn dynamical_to_iau2006_lon_deg(t: Instant) -> f64 {
+    let tc = (t.tt_jd() - J2000) / 36525.0;
+    let (mut sum, mut tp) = (0.0, 1.0);
+    for c in DYNAMICAL_TO_IAU2006_LON_ARCSEC {
+        sum += c * tp;
+        tp *= tc;
+    }
+    sum / 3600.0
 }
 
 /// 平黄赤交角 ε_A，度。即 Fukushima–Williams 的 `EPSA` 角。

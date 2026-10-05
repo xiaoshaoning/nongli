@@ -3,3 +3,6 @@ __pycache__/
 *.pyc
 probe/out_*.txt
 tools/out_*.txt
+
+# JPL 星历内核：只用于验收，不进版本库（见 tools/suncheck.py 顶部怎么取）
+kernels/

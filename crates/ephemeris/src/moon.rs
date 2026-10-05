@@ -7,7 +7,7 @@
 //! （位置 6.1 km / 31.7 km）。见 `docs/plan.md` 第 0 节。
 
 use crate::angle::{norm180, norm360, newton, D2R};
-use crate::frames::Ecliptic;
+use crate::frames::{dynamical_to_iau2006_lon_deg, Ecliptic};
 use crate::sun::sun_geometric_longitude;
 use crate::tables::{MOON_LAT, MOON_LON};
 use crate::time::{Instant, J2000};
@@ -126,7 +126,9 @@ pub fn moon_geocentric(t: Instant) -> Ecliptic {
         - 115.0 * ((a.lprime + mp) * D2R).sin();
 
     Ecliptic {
-        lon_deg: norm360(a.lprime + sl / 1e6),
+        // ELP2000-82B 同样给在它自己的当日黄道里，一并与太阳换算到 IAU 2006——
+        // 两边用**同一个**改正，"朔"的黄经之差才不受影响（否则会引入 ~0.3″ 的漂移）。
+        lon_deg: norm360(a.lprime + sl / 1e6 + dynamical_to_iau2006_lon_deg(t)),
         lat_deg: sb / 1e6,
         distance_km: MEAN_DISTANCE_KM + sr / 1000.0,
     }

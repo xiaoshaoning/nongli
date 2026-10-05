@@ -91,8 +91,13 @@ def main():
     print(f'    {"全部":>6}            n={len(ddist):5}  均值={ddist.mean():+9.4f} km  '
           f'rms={np.sqrt((ddist ** 2).mean()):8.4f} km  最大={np.abs(ddist).max():9.4f} km')
 
-    print(f'\n黄经系统差 = {dlon.mean():+.4f}"  '
-          f'(月球地心角速度 0.549"/s → 等效 {abs(dlon.mean())/0.549:.2f} s 的光行时)')
+    print()
+    print(f'黄经系统差 = {dlon.mean():+.4f}"')
+    print('  这一项**不是误差度量**，两个原因叠加：')
+    print('  1) erfa.moon98 省略了月球平黄经的光行时改正（等效 0.74"），本实现含；')
+    print('  2) 更主要的是**历元约定**：moon98 给在动力学平黄道里，本实现已换算到')
+    print('     IAU 2006（见 frames.rs 的 dynamical_to_iau2006_lon_deg），改正量在 ±4000 年到 25"。')
+    print('  要看真误差请用 tools/truthcheck.py（对 JPL DE421）。')
     return 0
 
 
