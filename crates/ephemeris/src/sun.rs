@@ -4,7 +4,7 @@
 
 use crate::frames::nutation;
 use crate::angle::{norm180, norm360, newton, D2R, R2D};
-use crate::tables::*;
+use crate::vsop87_tables::*;
 use crate::time::{Instant, J2000};
 
 /// 太阳平黄经的线性模型：λ ≈ [`MEAN_LONGITUDE_AT_J2000_DEG`]
@@ -24,32 +24,40 @@ fn vsop_sum(terms: &[(f64, f64, f64)], tau: f64) -> f64 {
     s
 }
 
-/// 地球日心黄经、黄纬 (弧度) 与向径 (AU)，VSOP87D，参考当日平黄道分点。
+/// 一条 VSOP87 级数（含全部幂次）在 τ 处的和。
 ///
-/// crate 内部用；公开面只保留调用方真正要的量。
+/// 幂次表本身是生成的（[`crate::vsop87_tables`]），所以这里循环即可——
+/// 以前是把 L0…L5、R0…R4 六个和式手写出来，加一个幂次就得改代码。
+fn vsop(series: &[&[(f64, f64, f64)]], tau: f64) -> f64 {
+    let (mut s, mut tk) = (0.0, 1.0);
+    for tab in series {
+        s += tk * vsop_sum(tab, tau);
+        tk *= tau;
+    }
+    s
+}
+
+/// 儒略千年数（VSOP87 的时间自变量）。
+fn tau_of(jde_tt: f64) -> f64 {
+    (jde_tt - J2000) / 365250.0
+}
+
+/// 地球日心黄经，弧度，参考当日动力学平黄道分点。
+fn earth_longitude_rad(jde_tt: f64) -> f64 {
+    vsop(EARTH_L, tau_of(jde_tt))
+}
+
+/// 地球日心黄纬，弧度。
 ///
-/// 返回 `(L, B, R)`。L、B 单位弧度，R 单位 AU。
-pub(crate) fn earth_heliocentric(jde_tt: f64) -> (f64, f64, f64) {
-    let tau = (jde_tt - J2000) / 365250.0;
-    let t2 = tau * tau;
-    let t3 = t2 * tau;
-    let t4 = t3 * tau;
-    let t5 = t4 * tau;
-    let l = (vsop_sum(EARTH_L0, tau)
-        + vsop_sum(EARTH_L1, tau) * tau
-        + vsop_sum(EARTH_L2, tau) * t2
-        + vsop_sum(EARTH_L3, tau) * t3
-        + vsop_sum(EARTH_L4, tau) * t4
-        + vsop_sum(EARTH_L5, tau) * t5)
-        / 1e8;
-    let b = (vsop_sum(EARTH_B0, tau) + vsop_sum(EARTH_B1, tau) * tau) / 1e8;
-    let r = (vsop_sum(EARTH_R0, tau)
-        + vsop_sum(EARTH_R1, tau) * tau
-        + vsop_sum(EARTH_R2, tau) * t2
-        + vsop_sum(EARTH_R3, tau) * t3
-        + vsop_sum(EARTH_R4, tau) * t4)
-        / 1e8;
-    (l, b, r)
+/// 只有 [`sun_geometric_longitude`] 里的 FK5 改正用得到它，而且只经由 `tan β`——
+/// 地球日心黄纬最大不过 1e-4 rad，所以这一条留得比 L 粗得多。
+fn earth_latitude_rad(jde_tt: f64) -> f64 {
+    vsop(EARTH_B, tau_of(jde_tt))
+}
+
+/// 日地距离，AU。
+fn earth_radius_au(jde_tt: f64) -> f64 {
+    vsop(EARTH_R, tau_of(jde_tt))
 }
 
 /// 太阳地心**几何**黄经 (度，[0,360)，当日**平**分点起算)。
@@ -61,10 +69,12 @@ pub(crate) fn earth_heliocentric(jde_tt: f64) -> (f64, f64, f64) {
 /// （见 `tools/moonphasecheck.py`）。Meeus 第 48 章用的也正是几何黄经。
 pub fn sun_geometric_longitude(t: Instant) -> f64 {
     let jde_tt = t.tt_jd();
-    let (l, b, _r) = earth_heliocentric(jde_tt);
+    let theta = earth_longitude_rad(jde_tt) + core::f64::consts::PI;
+    // VSOP87 的动力学黄道 → FK5。−0.09033″ 是常数项（两个历元的黄经零点差），
+    // 后一项才是黄纬带来的。
     let tc = (jde_tt - J2000) / 36525.0;
-    let theta = l + core::f64::consts::PI;
     let lp = theta - (1.397 * tc + 0.00031 * tc * tc) * D2R;
+    let b = earth_latitude_rad(jde_tt);
     let dlam = (-0.09033 + 0.03916 * (lp.cos() + lp.sin()) * b.tan()) / 3600.0;
     norm360(theta * R2D + dlam)
 }
@@ -74,7 +84,7 @@ pub fn sun_geometric_longitude(t: Instant) -> f64 {
 /// 单独拆出来是因为"朔"的判定要用它：章动 Δψ 对日月是同一个量、作差时**精确抵消**，
 /// 但光行差只作用于太阳，不抵消。见 [`new_moon`](crate::new_moon)。
 pub(crate) fn sun_aberration_deg(t: Instant) -> f64 {
-    -20.4898 / earth_heliocentric(t.tt_jd()).2 / 3600.0
+    -20.4898 / earth_radius_au(t.tt_jd()) / 3600.0
 }
 
 /// 太阳地心视黄经 (度，[0,360)，真分点起算)。
@@ -88,7 +98,7 @@ pub fn sun_apparent_longitude(t: Instant) -> f64 {
 ///
 /// 月相角要用到它（相位角与距离有关，不只是黄经差）。
 pub fn sun_distance_au(t: Instant) -> f64 {
-    earth_heliocentric(t.tt_jd()).2
+    earth_radius_au(t.tt_jd())
 }
 
 /// 太阳视黄经等于 `target_deg` 的时刻。

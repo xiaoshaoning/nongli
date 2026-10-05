@@ -49,6 +49,9 @@ pub(crate) mod frames_tables;
 #[allow(clippy::approx_constant)]
 pub(crate) mod nutation_tables;
 
+#[allow(clippy::approx_constant)]
+pub(crate) mod vsop87_tables;
+
 // R2D 有真实消费者（moon crate 用 4 处），故对外导出。D2R 没有——已收成 pub(crate)。
 pub use frames::{
     mean_obliquity, nutation, true_obliquity, ApparentEcliptic, Ecliptic, Equatorial, Nutation,
