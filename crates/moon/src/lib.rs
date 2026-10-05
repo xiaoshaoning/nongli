@@ -21,8 +21,11 @@
 //! * 照亮比例是**地心**所见；从地面看因视差有极小差别，不计。
 //! * 出没的定义见 [`rise_set`]。
 
+pub mod render;
+
 use ephemeris::{
-    moon_geocentric, Atmosphere, Ecliptic, Equatorial, Horizontal, Instant, Observer, R2D,
+    libration, moon_geocentric, Atmosphere, Ecliptic, Equatorial, Horizontal, Instant, Libration,
+    Observer, R2D,
 };
 
 /// 月球半径，km。用于视直径。
@@ -51,6 +54,11 @@ pub struct MoonPhase {
     pub distance_km: f64,
     /// 视直径，度。
     pub angular_diameter_deg: f64,
+    /// 月面中心的月面经纬度（天平动）。
+    ///
+    /// 与 [`render()`](crate::render::render) 无关——只画晨昏线用不到它；它决定的是**月面纹理**
+    /// 该摆在哪。见 `docs/plan.md` 第 6 步末尾的说明。
+    pub libration: Libration,
 }
 
 /// 月球的一次完整观测：位置 + 相位。
@@ -133,6 +141,7 @@ pub fn phase(
         bright_limb_deg: chi.rem_euclid(core::f64::consts::TAU) * R2D,
         distance_km: d,
         angular_diameter_deg: 2.0 * (MOON_RADIUS_KM / d).asin() * R2D,
+        libration: libration(t),
     }
 }
 

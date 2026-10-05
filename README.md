@@ -226,6 +226,7 @@ crates/ephemeris/     通用星历（零依赖，不知道任何农历概念）
   examples/{dt_dump,moon_check,frame_check,observer_check}.rs  供 tools/ 核对
 crates/moon/          月相与月球位置 app
   src/lib.rs          相位角、照亮比例、月龄、视直径、亮边方位、出没中天
+  src/render.rs       把月相画成字符图形（晨昏线椭圆，不含纹理）
   src/bin/moon.rs     命令行
 crates/nongli/        农历：编排规则 + 命名 + 命令行
   src/calendar.rs     编排规则（4.2–4.5）与农历日期

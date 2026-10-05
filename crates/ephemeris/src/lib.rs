@@ -52,7 +52,10 @@ pub use frames::{
     mean_obliquity, nutation, true_obliquity, ApparentEcliptic, Ecliptic, Equatorial, Nutation,
 };
 pub use observer::{gast, gmst, Atmosphere, Horizontal, Observer};
-pub use moon::{moon_apparent_longitude, moon_geocentric, new_moon, new_moon_index_near};
+pub use moon::{
+    libration, libration_from_direction, moon_apparent_longitude, moon_geocentric, new_moon,
+    new_moon_index_near, Libration,
+};
 pub use sun::{
     sun_apparent_longitude, sun_distance_au, sun_geometric_longitude, sun_longitude_at,
     MEAN_LONGITUDE_AT_J2000_DEG,

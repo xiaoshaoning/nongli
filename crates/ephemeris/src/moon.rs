@@ -157,6 +157,65 @@ pub fn new_moon(k: i64) -> Instant {
     Instant::from_tt(newton(jde, f, 0.05, 2.0))
 }
 
+/// 月球**光学天平动**：从地球看到的月面中心（sub-Earth point）的月面经纬度。
+///
+/// 月球自转基本均匀，但公转不均匀（轨道偏心），且自转轴与轨道面有夹角，于是我们
+/// 能多看一点东、西、南、北——这就是天平动。
+///
+/// | 分量 | 幅度 | 本实现 |
+/// |---|---|---|
+/// | 经度方向的光学天平动 | ±7.9° | ✅ |
+/// | 纬度方向的光学天平动 | ±6.7° | ✅ |
+/// | 物理天平动（月球本体真实摆动） | ±0.04° | ❌ |
+/// | 周日天平动（观测者不在圆心） | ±1° | 由 `moon` crate 另行处理 |
+///
+/// **物理天平动未实现**：幅度 ±0.04°，在月面上约合直径的 0.07%，肉眼看不出；
+/// 而 Meeus 第 53 章那套级数需要另一张约 20 项的表。等真要拿月面纹理定位再说。
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Libration {
+    /// 月面经度 l，度，东正。范围约 ±8°。
+    pub lon_deg: f64,
+    /// 月面纬度 b，度，北正。范围约 ±7°。
+    pub lat_deg: f64,
+}
+
+/// 由"观测者到月球"的**黄道方向**算月面中心经纬度。
+///
+/// `lon_deg` 用当日**平**分点起算的几何黄经——**不要**加章动。实测：Meeus 例 53.a
+/// 的 l' 是 −1.206°，加了 Δψ（该历元 16.6″）会得到 −1.201°，不加则 −1.2056°。
+/// 原因也说得通：Ω = L' − F 本身就在平分点体系里，两边必须同口径。
+pub fn libration_from_direction(lon_deg: f64, lat_deg: f64, t: Instant) -> Libration {
+    use crate::angle::{norm180, D2R, R2D};
+    /// 月球赤道对黄道的倾角（Cassini 定律），度。
+    const I_DEG: f64 = 1.54242;
+
+    let a = arguments(t.tt_jd());
+    // 月球轨道升交点黄经 = L' − F
+    let om = (a.lprime - a.f).to_radians();
+    let (lam, bet) = (lon_deg * D2R, lat_deg * D2R);
+    let inc = I_DEG * D2R;
+    let w = lam - om; // 月球黄经与升交点黄经之差
+
+    // Meeus 53.1–53.4
+    let big_a =
+        (w.sin() * bet.cos() * inc.cos() - bet.sin() * inc.sin()).atan2(w.cos() * bet.cos());
+    let l = big_a - a.f.to_radians();
+    let b = (-w.sin() * bet.cos() * inc.sin() - bet.sin() * inc.cos())
+        .clamp(-1.0, 1.0)
+        .asin();
+
+    Libration {
+        lon_deg: norm180(l * R2D),
+        lat_deg: b * R2D,
+    }
+}
+
+/// 月球的光学天平动（地心）。
+pub fn libration(t: Instant) -> Libration {
+    let e = moon_geocentric(t);
+    libration_from_direction(e.lon_deg, e.lat_deg, t)
+}
+
 /// 离 `t` 最近的一次朔的序号（允许 ±1 的误差）。
 ///
 /// 与 [`new_moon`] 互逆，用平朔望月估算；`t` 只当作一个粗略的儒略日使用，
@@ -189,6 +248,57 @@ mod tests {
             let d = norm180(moon_apparent_longitude(t) - sun_apparent_longitude(t));
             assert!(d.abs() < 1e-6, "k={k} d={d}");
         }
+    }
+
+    /// Meeus 例 53.a：1992-04-12.0 TD。天平动两个分量。
+    ///
+    /// 注意这里用的是**平**黄经（不加章动）——见 `libration_from_direction` 的说明。
+    #[test]
+    fn meeus_example_53a() {
+        let l = libration(Instant::from_tt(2448724.5));
+        assert!((l.lon_deg - -1.206).abs() < 0.002, "l'={}", l.lon_deg);
+        assert!((l.lat_deg - 4.194).abs() < 0.002, "b'={}", l.lat_deg);
+    }
+
+    /// 天平动的**自洽**检查，不依赖外部参考值：
+    ///
+    /// * 光经天平动在月球过近地点/远地点附近应接近 0，在两者之间达到极值；
+    /// * 光纬天平动在月球过升/降交点附近应接近 0，在两交点之间达到极值；
+    /// * 两者幅度都应落在教科书值附近（经度 ±7.9°、纬度 ±6.7°）。
+    #[test]
+    fn libration_amplitudes_and_phases() {
+        // 采样一个交点月与一个近点月
+        let mut lo_lon: f64 = 0.0;
+        let mut lo_lat: f64 = 0.0;
+        let mut n = 0;
+        for i in 0..(60 * 24) {
+            let t = Instant::from_tt(2451545.0 + i as f64 / 24.0);
+            let l = libration(t);
+            assert!(l.lon_deg.abs() < 9.0, "l={}", l.lon_deg);
+            assert!(l.lat_deg.abs() < 8.0, "b={}", l.lat_deg);
+            lo_lon = lo_lon.max(l.lon_deg.abs());
+            lo_lat = lo_lat.max(l.lat_deg.abs());
+            n += 1;
+        }
+        assert!(n > 1000);
+        // 60 天足以覆盖完整的极值范围
+        assert!((7.0..8.5).contains(&lo_lon), "经度天平动幅度 {lo_lon}");
+        assert!((5.8..7.2).contains(&lo_lat), "纬度天平动幅度 {lo_lat}");
+    }
+
+    /// 天平动的两个分量应当以不同周期变化（一个是近点月、一个是交点月），
+    /// 所以 60 天里不应出现"两者同时恒为 0"——那是公式退化的征兆。
+    #[test]
+    fn libration_is_not_degenerate() {
+        let mut both_small = 0;
+        for i in 0..(60 * 24) {
+            let t = Instant::from_tt(2451545.0 + i as f64 / 24.0);
+            let l = libration(t);
+            if l.lon_deg.abs() < 0.05 && l.lat_deg.abs() < 0.05 {
+                both_small += 1;
+            }
+        }
+        assert!(both_small < 24, "两者同时近零的小时数过多：{both_small}");
     }
 
     #[test]

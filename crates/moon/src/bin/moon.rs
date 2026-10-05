@@ -128,6 +128,13 @@ fn print_moment(t: Instant, observer: &Observer, atm: Option<Atmosphere>) {
         p.angular_diameter_deg * 60.0,
         p.bright_limb_deg
     );
+    println!(
+        "天平动  月面经度 {:+.2}°  月面纬度 {:+.2}°",
+        p.libration.lon_deg, p.libration.lat_deg
+    );
+    for line in moon::render::render(p, 61) {
+        println!("  {line}");
+    }
 
     let rs = rise_set(t, observer);
     let f = |x: Option<Instant>| x.map(fmt_beijing).unwrap_or_else(|| "—".to_string());
