@@ -40,6 +40,11 @@ import re
 
 import numpy as np
 
+try:
+    import erfa
+except ImportError:  # pragma: no cover
+    erfa = None
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.join(HERE, os.pardir)
 SRC_B = os.path.join(ROOT, 'third_party', 'vsop87', 'VSOP87B.ear')
@@ -89,8 +94,6 @@ def rot_x(a):
 
 
 def main():
-    import erfa
-
     B, D = load(SRC_B), load(SRC_D)
     tau = np.arange(-TAU_MAX, TAU_MAX + 1e-9, 0.002)
     jd = J2000 + tau * 365250.0

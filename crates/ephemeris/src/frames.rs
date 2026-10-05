@@ -26,10 +26,17 @@ use crate::time::{Instant, J2000};
 /// | 参考面/点 | **平**黄道、**平**分点（*不是*真分点）|
 /// | 单位 | 经度、纬度：度；距离：km。经度归化到 [0,360) |
 ///
-/// 注意"平黄道"是 **VSOP87D/Meeus 的口径**。`erfa.moon98` 的输出是 SOFA 用
-/// 它自己那套岁差转入 GCRS 的，再用 IAU2006 转回当日黄道会有 T² 增长的口径差
-/// （J2000 处为零，±1000 年 ~0.05″，±4000 年 ~12″）。跨口径比较前请先读
-/// `docs/plan.md` 第 2 步末尾的诊断。
+/// 注意参考面有两个**不同的**"当日平黄道"，别搞混：
+///
+/// * VSOP87D 与 ELP2000-82B **自己给的**是 1980 年代那套岁差的当日黄道；
+/// * 本类型是 **IAU 2006/P03** 的当日黄道，与章动、恒星时、赤道坐标同一口径。
+///
+/// 两者差 ~0.003″/年（在 J2000 处为零，±1000 年 ~0.3″，±4000 年 ~25″）。
+/// 两个理论输出处的换算都由 `frames.rs` 里的 `dynamical_to_iau2006_lon_offset_deg`
+/// 完成，所以从本类型出去的东西已经统一在 IAU 2006 里；**新接一个理论时别忘了加**。
+///
+/// `erfa.moon98` / VSOP87D 的输出是前者，跨口径直接比会看到那个 0.003″/年的
+/// 斜率——见 `docs/plan.md` 里“消掉那 0.003″/年的斜率”一节。
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct Ecliptic {
     /// 黄经，度，[0,360)。
@@ -255,7 +262,7 @@ pub fn nutation(t: Instant) -> Nutation {
 ///
 /// 只改正黄经；两个黄极间的微小倾斜（全程 |Δβ| ≤ 2.1″）未建模，对月球
 /// （黄纬可达 ±5°）留 ~0.17″ 残差——比它自己的截断误差小一个量级。
-pub(crate) fn dynamical_to_iau2006_lon_deg(t: Instant) -> f64 {
+pub(crate) fn dynamical_to_iau2006_lon_offset_deg(t: Instant) -> f64 {
     let tc = (t.tt_jd() - J2000) / 36525.0;
     let (mut sum, mut tp) = (0.0, 1.0);
     for c in DYNAMICAL_TO_IAU2006_LON_ARCSEC {

@@ -2,7 +2,7 @@
 //!
 //! 输出参考**真**分点（视黄经），可直接用于比较与求根。
 
-use crate::frames::{dynamical_to_iau2006_lon_deg, nutation};
+use crate::frames::{dynamical_to_iau2006_lon_offset_deg, nutation};
 use crate::angle::{norm180, norm360, newton, D2R, R2D};
 use crate::vsop87_tables::*;
 use crate::time::{Instant, J2000};
@@ -77,7 +77,7 @@ pub fn sun_geometric_longitude(t: Instant) -> f64 {
     let b = earth_latitude_rad(jde_tt);
     let dlam = (-0.09033 + 0.03916 * (lp.cos() + lp.sin()) * b.tan()) / 3600.0;
     // VSOP87D 给在**它自己的**当日黄道里，再换算到 IAU 2006 的当日黄道。
-    norm360(theta * R2D + dlam + dynamical_to_iau2006_lon_deg(t))
+    norm360(theta * R2D + dlam + dynamical_to_iau2006_lon_offset_deg(t))
 }
 
 /// 太阳的周年光行差，度（负值，约 −20.5″/R）。

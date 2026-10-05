@@ -96,7 +96,7 @@ def main():
     print('  这一项**不是误差度量**，两个原因叠加：')
     print('  1) erfa.moon98 省略了月球平黄经的光行时改正（等效 0.74"），本实现含；')
     print('  2) 更主要的是**历元约定**：moon98 给在动力学平黄道里，本实现已换算到')
-    print('     IAU 2006（见 frames.rs 的 dynamical_to_iau2006_lon_deg），改正量在 ±4000 年到 25"。')
+    print('     IAU 2006（见 frames.rs 的 dynamical_to_iau2006_lon_offset_deg），改正量在 ±4000 年到 25"。')
     print('  要看真误差请用 tools/truthcheck.py（对 JPL DE421）。')
     return 0
 

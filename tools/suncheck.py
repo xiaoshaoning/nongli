@@ -69,7 +69,7 @@ def main():
     print('''
 读法：**先看有没有随年代的趋势，别急着当误差**。
 
-我们这一侧的历元约定改正已经做了（`frames.rs::dynamical_to_iau2006_lon_deg`，
+我们这一侧的历元约定改正已经做了（`frames.rs::dynamical_to_iau2006_lon_offset_deg`，
 用 VSOP87B + IAU2006 定出，并与 IAU1976−IAU2006 的岁差速率差交叉验证过）。
 所以现代区间只剩 VSOP87 相对 VSOP2000 的理论差（~0.01"）。
 

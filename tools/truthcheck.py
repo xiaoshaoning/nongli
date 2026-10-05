@@ -64,19 +64,25 @@ def main():
         return (x + 180.0) % 360.0 - 180.0
 
     # === 太阳 ===
+    #
+    # 主指标取**几何**黄经：DE421 的地心矢量经 erfa.ecm06 转到 IAU2006 当日平黄道，
+    # 不含光行差与章动——两边同口径，验收不依赖我们自己的任何模型。
     jd = sun_rows[:, 0]
+    d_geom = np.empty(len(jd))
     d_sun = np.empty(len(jd))
     d_dist = np.empty(len(jd))
     for i, j in enumerate(jd):
         g = sun(j) - earth(j)
         r = np.linalg.norm(g)
         w = erfa.ecm06(j, 0.0) @ (g / r)
-        # 视黄经 = 当日平黄道 + 章动；再加周年光行差（我们的 sun_apparent_longitude 也含）
-        lam = (np.degrees(np.arctan2(w[1], w[0]))
-               + erfa.nut06a(j, 0.0)[0] / np.pi * 180.0
-               - 20.4898 / (r / AU_KM) / 3600.0)
-        d_sun[i] = wrap(sun_rows[i, 1] - lam) * 3600.0
-        d_dist[i] = (sun_rows[i, 2] - r / AU_KM) * AU_KM
+        lam_geom = np.degrees(np.arctan2(w[1], w[0]))
+        # 视黄经要在真值侧补上章动与周年光行差——这就复刻了 sun.rs 的口径，
+        # 所以只作辅助指标（万一我们两边犯同样的错，它看不出来）。
+        lam_app = (lam_geom + erfa.nut06a(j, 0.0)[0] / np.pi * 180.0
+                   - 20.4898 / (r / AU_KM) / 3600.0)
+        d_geom[i] = wrap(sun_rows[i, 2] - lam_geom) * 3600.0
+        d_sun[i] = wrap(sun_rows[i, 1] - lam_app) * 3600.0
+        d_dist[i] = (sun_rows[i, 3] - r / AU_KM) * AU_KM
 
     # === 月球 ===
     jdm = moon_rows[:, 0]
@@ -94,7 +100,8 @@ def main():
     y = 1900.0 + (sun_rows[:, 0] - 2415020.5) / 365.25
     print(f'对 JPL DE421（真值）· {len(jd)} 个时刻 · 1900–2050\n')
     print(f'{"":10} {"中位":>10} {"中位|差|":>11} {"最大":>10}')
-    print(f'{"太阳黄经":10} {np.median(d_sun):+9.4f}" {np.median(abs(d_sun)):10.4f}" {abs(d_sun).max():9.4f}"')
+    print(f'{"太阳几何黄经":12} {np.median(d_geom):+9.4f}" {np.median(abs(d_geom)):10.4f}" {abs(d_geom).max():9.4f}"')
+    print(f'{"太阳视黄经":12} {np.median(d_sun):+9.4f}" {np.median(abs(d_sun)):10.4f}" {abs(d_sun).max():9.4f}"   <- 辅助')
     print(f'{"日地距离":10} {np.median(d_dist):+9.2f}  {np.median(abs(d_dist)):10.2f}  {abs(d_dist).max():9.2f} km')
     print(f'{"月球黄经":10} {np.median(d_lon):+9.4f}" {np.median(abs(d_lon)):10.4f}" {abs(d_lon).max():9.4f}"')
     print(f'{"月球黄纬":10} {np.median(d_lat):+9.4f}" {np.median(abs(d_lat)):10.4f}" {abs(d_lat).max():9.4f}"')
@@ -103,14 +110,17 @@ def main():
     print('\n分年代（看有没有趋势——趋势意味着历元约定还没对上）：')
     for lo, hi in [(1900, 1925), (1925, 1950), (1950, 1975), (1975, 2000), (2000, 2025), (2025, 2050)]:
         m = (y >= lo) & (y < hi)
-        print(f'  {lo}-{hi}: 太阳 {np.median(d_sun[m]):+8.4f}"  月球 {np.median(d_lon[m]):+9.4f}"'
+        print(f'  {lo}-{hi}: 太阳几何 {np.median(d_geom[m]):+8.4f}"  月球 {np.median(d_lon[m]):+9.4f}"'
               f'  月距 {np.median(d_km[m]):+8.3f} km')
 
     print('''
 读法：
+* **主指标是"太阳几何黄经"**：两边同口径、不含光行差与章动，所以验收不依赖
+  我们自己的模型。"太阳视黄经"那一行要在真值侧补光行差与章动，等于复刻了
+  sun.rs 的口径，只能当辅助。
 * 太阳的残差应当**没有随年代的趋势**（J2000 处过零、向两侧线性增长就是
   历元约定没对上，见 crates/ephemeris/src/frames.rs 的
-  `dynamical_to_iau2006_lon_deg`）。剩下的是 VSOP87 相对 DE421 的理论差。
+  `dynamical_to_iau2006_lon_offset_deg`）。剩下的是 VSOP87 相对 DE421 的理论差。
 * 月球现在由 Meeus 第 47 章那 60 项截断主导（第 7 步换 ELP2000-82B 就是冲它）。
 * DE421 只到 2053，所以这里看不到 ±4000 年；那边两个理论都在外推，
   真值得用 DE441。
