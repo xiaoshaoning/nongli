@@ -76,22 +76,29 @@ nongli --sui   <年>          打印一个"岁"的各月与置闰判定
 
 ## 计算模型
 
-`src/tables.rs` 由 `tools/gen_tables.py` 生成，系数取自：
+系数表全部由 `tools/gen_*.py` 生成到 `crates/ephemeris/src/*_tables.rs`，
+**生成器的文档字符串里写了来源、截断阈值与实测误差**。三套级数都用**原始系数**，
+不用教科书上的转抄版（转抄版实测在 J2000 处就有 −0.24″ 的系统差）。
 
-* **太阳**：VSOP87D 地球级数（Meeus, *Astronomical Algorithms* 2nd ed. 附录 III 的截断，
-  单位 1e-8 rad），再加 FK5 改正、周年光行差与章动。
-* **月球**：ELP2000-82B 截断级数（Meeus 第 47 章表 47.A，60 项 + A1/A2/A3 附加项），
-  再加章动。
-* **章动**：IAU 1980 主项（Meeus 22.3，截断误差 ≤ 0.9″；实测换用 IAU 2006 精确章动对
-  结果几乎无影响）。
-* **ΔT**：1973–2025 用 IERS 实测值（内建小表），其余用 Espenak & Meeus (2006)
-  分段多项式，并在表端做增量衔接以保证连续。单独用 E–M 多项式时，1973–2025 段
-  最大偏差 5.33 s —— 5 s 已是现代最大的日界风险源（约 0.3%/年），故改用实测表。
-* 朔（日月视黄经相等）与节气（太阳视黄经 = 15° 整数倍）用角度差上的牛顿迭代求解，
-  收敛判据 1e-10°（约 1e-4 s）。
+| 量 | 模型 | 来源 | 备注 |
+|---|---|---|---|
+| 行星 | **VSOP87D** 地球级数 | CDS VI/81 `VSOP87D.ear` | 1080/348/997 项，按实测阈值截断 |
+| 月球 | **ELP2000-82B** | `vsr83/ELP2000-82B`（MIT） | 36 张表 3402 项；2002 年 LLR 重定参数 |
+| 章动 | **IAU 2000A 完整模型** | ERFA `nut00a.c`（BSD） | 678 日月项 + 687 行星项 |
+| 岁差 | **IAU 2006 (P03)** | 对 `erfa.pfw06` 拟合 FW 角 | ±200 世纪内 2.3e-8″ |
+| 黄赤交角 | IAU 2006 | 同上（EPSA 角） | 对 `erfa.obl06` 差 1.8e-6″ |
+| 恒星时 | ERA + IAU 2006 GMST | — | 分点差按 ERFA `ee00.c` 的定义 |
+| ΔT | 1973–2025 IERS 实测值；其余 Espenak & Meeus (2006) 分段多项式 | 内建小表 | 表端做增量衔接保证连续 |
 
-两套级数都通过了各自公开的算例：太阳复现 Meeus 例 25.b（1992-10-13.0 TD →
-199°54′21.56″），月球复现 Meeus 例 47.a（1992-04-12.0 TD → 133.162655°，逐位一致）。
+两处口径要留意（都写进了接口注释）：
+
+* **参考面**：太阳与月球都换算到 **IAU 2006 的当日平黄道分点**。VSOP87D 与
+  ELP2000-82B 自带的是 1980 年代那套（差 0.003″/年），要显式改正。
+* **观测效应**：月球输出是**视**位置（几何 + 光行时 + 周年光行差）；太阳的
+  视黄经与几何黄经是两个分开的入口（"朔"用后者）。
+
+几何：朔（日月**视**黄经相等）与节气（太阳视黄经 = 15° 整数倍）都用角度差上的
+牛顿迭代求解。
 
 ## 适用范围：在多大范围内没有歧义
 
@@ -158,43 +165,64 @@ nongli --sui   <年>          打印一个"岁"的各月与置闰判定
 
 ## 精度
 
-与 ERFA / astropy `builtin` 参考模型（太阳 `eraEpv00`，月球 `eraMoon98`）逐点比对：
+**真值参照是 JPL 星历，不是 ERFA / astropy 的模型。** 后者自身就有可观的误差——
+astropy 的 builtin 月球（ERFA `moon98` 一路）对 JPL DE421 是**中位 19.8″、最大 43.7″**，
+而本实现是 0.044″。拿它当参考量不出我们的精度。
 
-| 区间 | 太阳视黄经 rms / max | 月球视黄经 rms / max |
+实测（`python tools/truthcheck.py`，**JPL DE421**，1900–2050 共 10958 个时刻）：
+
+| | 中位\|差\| | 最大\|差\| |
 |---|---|---|
-| 1500–2200 | 0.69″ / 1.6″ | 0.088″ / 0.23″ |
-| −1975–6025 | 19″ / 47″ | 2.0″ / 11.9″ |
+| 太阳视黄经 | 0.0095″ | 0.025″ |
+| 月球视黄经 | 0.044″ | 0.11″ |
+| 月球视黄纬 | 0.011″ | 0.11″ |
+| 日地距离 | 0.76 km | 4.1 km |
+| 月地距离 | 0.019 km | 0.091 km |
 
-全区间残差是一条光滑的长周期曲线，量级 ≈ ±10″ / 6000 年——这是 **ERFA `epv00` 只在
-1900–2100 年有效**造成的（该函数对长期项做了更激进的截断），并非本实现的截断误差。
-近现代区间两者一致到亚角秒。
+理论本体：太阳用 VSOP87D（`VSOP87D.ear` 原始系数，1526–2526 内相对未截断级数
+0.0025″），月球用 ELP2000-82B（36 张表 3402 项）。参考系归算用 IAU 2006/2000A。
+两者相对 JPL 的残差已经小于"理论本身与 JPL 的差距"，再往下只有换 JPL 内核本体。
 
-对干支/农历真正要紧的是**是否落在同一个北京时间日**。1526–2526 年共 1000 年的实测
-（两边用**相同**的 ΔT，故差异纯属星历模型）：
+### 标准 §5.2：朔和节气的北京时间精度应达到 1 s
 
-| 事件 | 个数 | 时刻差 中位 / 最大 | 日界不符 | 期望值 |
+这是 GB/T 33661-2017 里唯一的定量要求。实测（`python tools/spec_check.py`，对 DE421）：
+
+| | 事件数 | 中位\|偏差\| | 最大\|偏差\| | 判据 |
 |---|---|---|---|---|
-| 朔（月首） | 12372 | 1.4 s / 5.4 s | **0** | 0.4 |
-| 节气 | 24004 | 17.5 s / 108.5 s | 16 (0.07%) | 10.3 |
+| 朔 | 1856 | 0.096 s | **0.221 s** | ≤1 s ✅ |
+| 节气 | 3600 | 0.233 s | **0.604 s** | ≤1 s ✅ |
 
-“期望值” = Σ\|Δt\|/43200（余量在 [0, 43200] 秒上均匀，故单个事件翻日概率 = \|Δt\|/43200）。
-实测值与期望值在泊松涨落范围内一致。
+两侧用**同一套 ΔT**，所以量到的是模型/理论的误差——正是 §5.2 所指。
+逐条符合性对照（含 §5.1）见 [`docs/compliance.md`](docs/compliance.md)。
 
-复现方式：
+### 复现方式
 
 ```bash
-python tools/gen_tables.py      # 重新生成 src/tables.rs
-python tools/crosscheck.py      # 与 ERFA 比经度与时刻
-python tools/daydiff.py 1526 2526   # 统计日界不符的个数
-python probe/ambiguity.py       # 朔/中气距午夜的余量分布
-python probe/dtshift.py         # ΔT 偏移对闰月结构的影响
-python probe/dtreference.py     # ΔT 参考实现自检（与 crates/ephemeris/src/time.rs 逐点核对）
-python tools/mooncheck.py       # 月球 λ/β/Δ 对 erfa.moon98 逐点比对
-python tools/framecheck.py      # 章动/黄赤交角 对 ERFA 逐点比对
-python tools/observercheck.py   # 恒星时对 ERFA 逐点比对（地平坐标见脚本注释）
-python tools/moonphasecheck.py  # 照亮比例/相位角 对 ERFA 向量的独立实现
-python tools/deadpub.py         # 列出没有消费者的公开项（rustc 不会警告 pub）
+python tools/truthcheck.py -p ephemeris   # 对 JPL 真值验太阳与月球（需 kernels/de421.bsp）
+python tools/spec_check.py   # §5.2 的 1 s 判据
+python tools/suncheck.py     # 太阳对 astropy（可看长跨度上两个模型怎么分离）
+python tools/mooncheck.py    # 月球 λ/β/Δ 对 erfa.moon98
+python tools/framecheck.py   # 章动/黄赤交角 对 ERFA 逐点比对
+python tools/observercheck.py # 恒星时、站心视差 对 ERFA
+python tools/moonphasecheck.py # 照亮比例/相位角 对 ERFA 向量的独立实现
+python tools/daydiff.py 1526 2526  # 统计日界不符的个数
+python tools/deadpub.py      # 没有消费者的公开项（rustc 不会警告 pub）
+python probe/ambiguity.py    # 朔/中气距午夜的余量分布
+python probe/dtshift.py      # ΔT 偏移对闰月结构的影响
+python probe/dtreference.py  # ΔT 参考实现自检
+python tools/gen_vsop87.py   # 重新生成太阳系数表
+python tools/gen_elp2000.py  # 重新生成月球系数表
+python tools/gen_nutation.py / gen_frames.py / gen_ecliptic_frame.py
 ```
+
+`kernels/de421.bsp`（JPL DE421，覆盖 1900–2053）不进版本库，取法见
+`tools/truthcheck.py` 头部。
+
+### 长跨度上的模型差异
+
+`tools/suncheck.py` 保留了一张对 astropy builtin 的表，用来观察**两个模型在长跨度上
+如何分离**：太阳在 1526–2526 差 ~0.7″、3000–4000 差 ~1.4″，而那是 ERFA `epv00`
+只在 1900–2100 有效造成的，不是我们的误差。
 
 ## 适用范围与限制
 
@@ -218,12 +246,14 @@ Cargo workspace，按**知识**而非执行顺序划分：
 crates/ephemeris/     通用星历（零依赖，不知道任何农历概念）
   src/time.rs         儒略日、公历/儒略历、ΔT。不预设时区
   src/sun.rs          VSOP87D 地球级数、太阳地心视黄经
-  src/moon.rs         ELP2000-82B 截断级数 —— 理论之"缝"
-  src/frames.rs       Ecliptic/Equatorial 值类型、黄赤交角、章动、黄道→赤道
+  src/moon.rs         ELP2000-82B 完整级数 —— 理论之"缝"
+  src/frames.rs       Ecliptic/Equatorial 值类型、岁差、黄赤交角、章动、黄道→赤道
   src/observer.rs     恒星时、站心视差、大气折射、地平坐标
   src/angle.rs        角度归化、角度-时刻求根
-  src/tables.rs       自动生成的级数系数
-  examples/{dt_dump,moon_check,frame_check,observer_check}.rs  供 tools/ 核对
+  src/vsop87_tables.rs / elp2000_tables.rs     自动生成的级数系数
+  src/nutation_tables.rs / frames_tables.rs / ecliptic_frame_tables.rs
+  examples/{dt_dump,sun_check,moon_check,frame_check,observer_check,truth_check}.rs
+                      供 tools/ 核对的输出源（truth_check 对 JPL 真值）
 crates/moon/          月相与月球位置 app
   src/lib.rs          相位角、照亮比例、月龄、视直径、亮边方位、出没中天
   src/render.rs       把月相画成字符图形（晨昏线椭圆，不含纹理）
