@@ -190,7 +190,8 @@ python probe/ambiguity.py       # 朔/中气距午夜的余量分布
 python probe/dtshift.py         # ΔT 偏移对闰月结构的影响
 python probe/dtreference.py     # ΔT 参考实现自检（与 crates/ephemeris/src/time.rs 逐点核对）
 python tools/mooncheck.py       # 月球 λ/β/Δ 对 erfa.moon98 逐点比对
-python tools/framecheck.py      # 章动/黄赤交角/黄道→赤道 对 ERFA 逐点比对
+python tools/framecheck.py      # 章动/黄赤交角 对 ERFA 逐点比对
+python tools/deadpub.py         # 列出没有消费者的公开项（rustc 不会警告 pub）
 ```
 
 ## 适用范围与限制

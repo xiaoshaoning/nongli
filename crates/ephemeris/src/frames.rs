@@ -10,8 +10,8 @@
 //! 章动用的是 IAU 1980 缩写式；一次"拟合更好级数"的尝试失败，原因记在
 //! `nutation` 的文档与 `docs/plan.md` 第 3 步。
 
-use crate::angle::{norm360, D2R};
-use crate::frames_tables::{EPSA, GAMB, PHIB, PSIB};
+use crate::angle::{norm360, D2R, R2D};
+use crate::frames_tables::EPSA;
 use crate::time::{Instant, J2000};
 
 /// 地球与月球**地心黄道**坐标。
@@ -76,8 +76,8 @@ impl Ecliptic {
         let dec = (sbet * ceps + cbet * seps * slam).clamp(-1.0, 1.0).asin();
         let y = slam * ceps - (sbet / cbet) * seps;
         Equatorial {
-            ra_deg: norm360(y.atan2(clam) * crate::angle::R2D),
-            dec_deg: dec * crate::angle::R2D,
+            ra_deg: norm360(y.atan2(clam) * R2D),
+            dec_deg: dec * R2D,
             distance_km: self.distance_km,
         }
     }
@@ -132,23 +132,17 @@ pub fn true_obliquity(t: Instant) -> f64 {
     mean_obliquity(t) + nutation(t).deps_deg
 }
 
-/// Fukushima–Williams 岁差角 `(γ̄, φ̄, ψ̄, ε_A)`，弧度。
-///
-/// IAU2006 的定义；`tools/gen_frames.py` 对 `erfa.pfw06` 拟合复原了这些系数，
-/// 故在 ±200 世纪内与 ERFA 相差 < 3e-8″。
-///
-/// 目前尚无消费者（第 4 步做地平坐标时不需要——恒星时本身就是相对当日分点的；
-/// 只有要输出 J2000/ICRS 时才用得上）。留着是因为它已经验证过，
-/// 且是这一步的成果之一。
-pub fn fukushima_williams(t: Instant) -> (f64, f64, f64, f64) {
-    const AS2R: f64 = core::f64::consts::PI / (180.0 * 3600.0);
-    (
-        poly_arcsec(&GAMB, t) * AS2R,
-        poly_arcsec(&PHIB, t) * AS2R,
-        poly_arcsec(&PSIB, t) * AS2R,
-        poly_arcsec(&EPSA, t) * AS2R,
-    )
-}
+// 岁差的三个 Fukushima–Williams 角（γ̄、φ̄、ψ̄）**没有暴露**。
+//
+// `tools/gen_frames.py` 会拟合并验证全部四个角（±200 世纪内对 erfa.pfw06 差 2.3e-8″），
+// 但只有 ε_A（EPSA）有人用——`mean_obliquity` 需要它。
+//
+// 另外三个角是把"当日"化到 J2000/ICRS 时才需要的。目前没有任何消费者：
+// 地平坐标、恒星时都在"当日"系里，用不上岁差。等真要做 ICRS 输出
+// （例如把月球画到星图上）再让生成器把它们一并输出即可，成本是一行。
+//
+// 之前这里放过一个 `fukushima_williams()`，靠"它已经验证过了"留着——那是拿
+// 沉没成本给死代码找理由，已删。
 
 /// 按 T 的降幂求多项式。系数以**角秒**给出，返回值也是角秒——单位换算由调用方做，
 /// 免得像先前那样在两层里各换一次。
@@ -194,17 +188,6 @@ mod tests {
                 mean_obliquity(t)
             );
         }
-    }
-
-    /// FW 角的量级与已知值（J2000 处 φ̄ ≈ ε_A ≈ 84381.406″）。
-    #[test]
-    fn fw_angles_at_j2000() {
-        let (g, p, ps, e) = fukushima_williams(Instant::from_tt(J2000));
-        let ar = 180.0 * 3600.0 / core::f64::consts::PI;
-        assert!((g * ar - -0.052928).abs() < 1e-5, "γ̄={}", g * ar);
-        assert!((p * ar - 84381.412819).abs() < 1e-3, "φ̄={}", p * ar);
-        assert!((ps * ar - -0.041775).abs() < 1e-5, "ψ̄={}", ps * ar);
-        assert!((e * ar - 84381.4059).abs() < 1e-3, "ε_A={}", e * ar);
     }
 
     #[test]
