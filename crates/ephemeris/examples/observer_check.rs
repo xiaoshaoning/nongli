@@ -26,11 +26,16 @@ fn main() {
     }
 
     // 2) 地平坐标：对若干历元 × 若干站点，取一组固定黄道坐标
+    // 三档距离：月球（视差显著）、远天体（视差可忽略，可与 atco13 这种"恒星例程"对拍）
     let ecls = [
         (0.0, 0.0, 384400.0),
         (90.0, 20.0, 384400.0),
         (200.0, -60.0, 384400.0),
         (359.0, 5.0, 384400.0),
+        (0.0, 0.0, 1.0e12),
+        (90.0, 20.0, 1.0e12),
+        (200.0, -60.0, 1.0e12),
+        (359.0, 5.0, 1.0e12),
     ];
     for y in [1900.0, 2000.0, 2026.0, 2100.0, 3000.0] {
         let t = Instant::from_tt(2451545.0 + (y - 2000.0) * 365.25);
@@ -40,6 +45,12 @@ fn main() {
                 lon_deg: lon,
                 height_m: h,
             };
+            // 观测者地心矢量（地球固连），供 Python 侧与 erfa.gd2gc 对拍
+            let pv = o.geocentric_fixed_km();
+            println!(
+                "OBS {lat} {lon} {h} {:.9} {:.9} {:.9}",
+                pv[0], pv[1], pv[2]
+            );
             for (lam, bet, dist) in ecls {
                 let eq: Equatorial = Ecliptic {
                     lon_deg: lam,
@@ -49,9 +60,12 @@ fn main() {
                 .equatorial(t);
                 let vacuum = eq.horizontal(t, &o, None);
                 let refr = eq.horizontal(t, &o, Some(Atmosphere::default()));
+                // 同时给出**中间量** (α, δ, Δ)，让 Python 侧能把同一个输入喂给
+                // erfa.apio13/atioq，从而只比"观测者归算"这一段。
                 println!(
-                    "HZ {y} {lat} {lon} {h} {lam} {bet} {:.12} {:.12} {:.12} {:.12}",
-                    vacuum.azimuth_deg, vacuum.altitude_deg, refr.azimuth_deg, refr.altitude_deg
+                    "HZ {y} {lat} {lon} {h} {lam} {bet} {:.12} {:.12} {:.12} {:.12}                      {:.12} {:.12} {:.6}",
+                    vacuum.azimuth_deg, vacuum.altitude_deg, refr.azimuth_deg, refr.altitude_deg,
+                    eq.ra_deg, eq.dec_deg, eq.distance_km
                 );
             }
         }

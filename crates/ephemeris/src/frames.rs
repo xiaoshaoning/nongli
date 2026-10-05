@@ -61,14 +61,22 @@ impl Ecliptic {
         }
     }
 
-    /// 黄道 → **视**赤道（当日真分点、真赤道）。
+    /// **平**黄道 → **视**赤道（当日真分点、真赤道）。
     ///
-    /// 用**真**黄赤交角 ε = ε_A + Δε。标准球面三角：
+    /// 内部先加章动（[`Ecliptic::apparent`]）再用真黄赤交角 ε = ε_A + Δε，
+    /// 所以**传进来的必须是平黄道坐标**，调用方不必先自己调 `apparent()`。
+    ///
+    /// 这一点曾经是个陷阱：早先 `equatorial()` 直接用真交角，隐含要求调用方先
+    /// 加章动，而类型上看不出来——把平黄道坐标喂进去会差 12–20″（用 `atco13`
+    /// 对拍时抓到的）。改成"一个函数做完整件事"，预条件就没有了。
+    ///
+    /// 标准球面三角：
     /// `sin δ = sin β cos ε + cos β sin ε sin λ`，
     /// `α = atan2(sin λ cos ε − tan β sin ε, cos λ)`。
     pub fn equatorial(self, t: Instant) -> Equatorial {
+        let e = self.apparent(t);
         let eps = true_obliquity(t) * D2R;
-        let (lam, bet) = (self.lon_deg * D2R, self.lat_deg * D2R);
+        let (lam, bet) = (e.lon_deg * D2R, e.lat_deg * D2R);
         let (slam, clam) = lam.sin_cos();
         let (sbet, cbet) = bet.sin_cos();
         let (seps, ceps) = eps.sin_cos();
@@ -204,20 +212,29 @@ mod tests {
         assert!((a.lon_deg - 10.0 - nutation(t).dpsi_deg).abs() < 1e-12);
     }
 
-    /// 黄道→赤道的自洽性：β=0 时 δ 应落在 ±ε 内；λ=0 时 δ 应为 0。
+    /// 黄道→赤道：`equatorial` 必须**自己**加章动。
+    ///
+    /// 用不变量来测，而不是把公式再抄一遍：黄道上的点（β=0）转到赤道后，
+    /// δ 只由**真**黄经决定——真黄经为 0/180 时 δ=0，为 90/270 时 |δ|=ε。
+    /// 若 `equatorial` 忘了加章动，这两条会差约 Δψ·sin ε ≈ 4″。
     #[test]
-    fn ecliptic_to_equatorial_sanity() {
+    fn ecliptic_to_equatorial_applies_nutation() {
         let t = Instant::from_tt(J2000);
+        let dpsi = nutation(t).dpsi_deg;
         let eps = true_obliquity(t);
-        // 春分点 (λ=0, β=0) → (α=0, δ=0)
-        let q = Ecliptic { lon_deg: 0.0, lat_deg: 0.0, distance_km: 1.0 }.equatorial(t);
-        assert!(q.ra_deg.abs() < 1e-9 && q.dec_deg.abs() < 1e-9, "{q:?}");
-        // 夏至点 (λ=90, β=0) → δ = +ε
-        let s = Ecliptic { lon_deg: 90.0, lat_deg: 0.0, distance_km: 1.0 }.equatorial(t);
-        assert!((s.dec_deg - eps).abs() < 1e-9, "δ={} ε={eps}", s.dec_deg);
-        assert!((s.ra_deg - 90.0).abs() < 1e-9, "α={}", s.ra_deg);
-        // 秋分点 (λ=180, β=0) → δ = 0
-        let a = Ecliptic { lon_deg: 180.0, lat_deg: 0.0, distance_km: 1.0 }.equatorial(t);
-        assert!(a.dec_deg.abs() < 1e-9, "δ={}", a.dec_deg);
+
+        // 真黄经 = 0 → δ = 0
+        let e = Ecliptic { lon_deg: -dpsi, lat_deg: 0.0, distance_km: 1.0 };
+        assert!(e.equatorial(t).dec_deg.abs() < 1e-9, "δ={}", e.equatorial(t).dec_deg);
+
+        // 真黄经 = 90 → δ = +ε
+        let e = Ecliptic { lon_deg: 90.0 - dpsi, lat_deg: 0.0, distance_km: 1.0 };
+        let q = e.equatorial(t);
+        assert!((q.dec_deg - eps).abs() < 1e-9, "δ={} ε={eps}", q.dec_deg);
+
+        // 距离原样带过
+        let e = Ecliptic { lon_deg: 33.0, lat_deg: -7.0, distance_km: 384400.0 };
+        assert_eq!(e.equatorial(t).distance_km, 384400.0);
     }
+
 }

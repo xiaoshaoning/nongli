@@ -97,23 +97,29 @@ pub fn gast(t: Instant) -> f64 {
 }
 
 impl Observer {
-    /// 观测者的地心位置矢量，单位 km，坐标系为**当日真赤道**（x 轴取真分点）。
+    /// 观测者的地心位置矢量，**地球固连**系（x 轴指向经度 0），km。
     ///
-    /// 先由 WGS84 椭球得到随地球固连的直角坐标，再绕 z 轴按 [`gast`] 转到天球系。
-    pub fn geocentric_km(&self, t: Instant) -> [f64; 3] {
+    /// WGS84 椭球上的标准公式。这一步与时间无关，所以单独拆出来——
+    /// 可以直接对 `erfa.gd2gc` 验证，不必先绕开恒星时。
+    pub fn geocentric_fixed_km(&self) -> [f64; 3] {
         let phi = self.lat_deg * D2R;
         let lam = self.lon_deg * D2R;
         let h_km = self.height_m / 1000.0;
         let e2 = WGS84_F * (2.0 - WGS84_F);
         let (sphi, cphi) = phi.sin_cos();
         let n = WGS84_A_KM / (1.0 - e2 * sphi * sphi).sqrt();
+        [
+            (n + h_km) * cphi * lam.cos(),
+            (n + h_km) * cphi * lam.sin(),
+            (n * (1.0 - e2) + h_km) * sphi,
+        ]
+    }
 
-        // 地球固连系
-        let x = (n + h_km) * cphi * lam.cos();
-        let y = (n + h_km) * cphi * lam.sin();
-        let z = (n * (1.0 - e2) + h_km) * sphi;
-
-        // 绕 z 轴转 GAST → 当日真赤道系
+    /// 观测者的地心位置矢量，**当日真赤道**系（x 轴取真分点），km。
+    ///
+    /// 地球固连 → 绕 z 轴转 [`gast`]。
+    pub fn geocentric_km(&self, t: Instant) -> [f64; 3] {
+        let [x, y, z] = self.geocentric_fixed_km();
         let th = gast(t) * D2R;
         let (sth, cth) = th.sin_cos();
         [x * cth - y * sth, x * sth + y * cth, z]
