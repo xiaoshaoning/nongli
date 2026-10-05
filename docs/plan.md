@@ -13,15 +13,41 @@
 
 这一节是整个计划的地基。**在动手前请先读完，避免误判进度。**
 
-### 0.1 当前的 0.088″ 不是精度，是自洽性
+### 0.1 当前的 0.088″ 不度量理论精度
 
-`docs/ambiguity.md` 与 `README.md` 里报的"月球视黄经对 ERFA 差 0.088″（1500–2200）"
-是**与 `erfa.moon98` 比对的结果，而 `erfa.moon98` 就是 Meeus 第 47 章那套 60 项级数**
-——和本仓库实现的是同一个理论。
+`README.md` 与 `docs/ambiguity.md` 里报的“月球视黄经对 ERFA 差 0.088″（1500–2200）”，
+比对对象是 `astropy.get_body('moon')`。它证明了：
 
-> 该数字只证明**系数没抄错**，不证明理论准。
+* 系数没抄错
+* 光行时处理与 astropy 一致
+* 参考系链（黄道↔赤道）正确
 
-### 0.2 理论本体的绝对精度（SOFA 官方文档）
+它**不能**证明理论准 —— 因为两边共用同一套 Meeus 截断级数，**截断误差在作差时抵消了**。
+
+### 0.2 一个重要发现：本实现含月球光行时，`erfa.moon98` 不含
+
+SOFA 文档原文：
+
+> This function is a full implementation of the algorithm published by
+> Meeus except that **the light-time correction to the Moon's mean longitude
+> has been omitted**.
+
+本仓库按 Meeus 原文转录（能把例 47.a 复现到 1e-5），因此**含**该改正。实测：
+
+| 比较 | 差 |
+|---|---|
+| 本实现 − `erfa.moon98` | **−0.70″（系统性）** |
+| 本实现 − `get_body`（含光行时） | +0.05″ |
+| `get_body` − `erfa.moon98` | −0.72″（= 光行时效应）|
+
+**对新 crate 的两条直接后果：**
+
+1. 理论的“缝”必须写明返回的是**几何**位置还是**含光行时**的位置。否则将来换成
+   ELP/MPP02 或 DE440 时会引入 **0.7″ 的不连续**，而且很难查。
+2. 任何对 `erfa.moon98` 的比对都会带一条 −0.7″ 的系统偏差，**不要误读为误差**。
+   要比它，先明确把光行时关掉。
+
+### 0.3 理论本体的绝对精度（SOFA 官方文档）
 
 `erfa.moon98` 与 **ELP/MPP02** 在 1950–2100 的比对：
 
@@ -34,14 +60,14 @@
 **这就是本仓库当前的绝对精度上限。** 对农历日界无所谓（月球 0.55″/秒，3″ ≈ 5.5 s 时间），
 对"专业级"不够——掩星、月食接触时刻要的是 0.001″ 量级。
 
-### 0.3 归算链可以做到专业级，且全程可验证
+### 0.4 归算链可以做到专业级，且全程可验证
 
 | | 能否专业级 | 依据 |
 |---|---|---|
 | 归算链：岁差 IAU2006、章动 IAU2000A 级、恒星时、站心视差、光行差、大气折射、地平坐标 | **能** | ERFA 提供全部参考例程，可逐项对拍 |
 | 月球理论本体 | **不能**（缺数据，见第 2 节） | 当前 2.9″ RMS 是天花板 |
 
-### 0.4 因此有一条排序原则
+### 0.5 因此有一条排序原则
 
 > **在理论被卡在 3″ 时，把归算链磨到 0.001″ 并不会让最终结果好于 3″。**
 
@@ -77,18 +103,25 @@
 
 ```
 nongli/                        workspace root
-├─ Cargo.toml                  [workspace] members
+├─ Cargo.toml                  [workspace] members = ["crates/*"]
 ├─ crates/
-│  ├─ ephemeris/               通用天文：时间尺度、VSOP87、ELP、岁差章动、站心、坐标
-│  │  └─ src/{lib,jd,time_scales,sun,moon,nutation,precession,frames,observer}.rs
+│  ├─ ephemeris/               通用天文（零依赖，不知道任何农历概念）
+│  │  └─ src/{lib,time,sun,moon,frames,observer,tables}.rs
 │  ├─ nongli/                  农历：GB/T 第 4/6 章规则 + CLI（现 src/ 搬入）
-│  │  └─ src/{lib,calendar,names,bin/nongli.rs}
+│  │  └─ src/{lib,calendar,names,terms,bin/nongli.rs}
 │  └─ moon/                    月相与月球位置 app
 │     └─ src/{lib,bin/moon.rs}
 ├─ tools/                      生成器与校验脚本（跨 crate）
 ├─ probe/
 ├─ docs/
 └─ README.md
+```
+
+依赖方向（必须单向，不得回指）：
+
+```
+nongli ──> ephemeris
+moon   ──> ephemeris          （若以后要显示农历日期，再加 moon ──> nongli）
 ```
 
 ### 划界原则：按**知识**划分，不按文件
@@ -110,16 +143,116 @@ nongli/                        workspace root
 另有一处**时区硬编码**要参数化：`jd.rs::BEIJING_OFFSET_DAYS` 与 `tt_to_beijing_jdn`。
 通用代码不该假设时区是 +8。
 
-### 理论的"缝"
+### 模块划分：按**知识**，不按教科书章节，也不按执行顺序
+
+| 知识 | 模块 | 现有来源 |
+|---|---|---|
+| 历法、儒略日、ΔT、`Instant` | `time.rs` | 现 `jd.rs` |
+| 太阳理论（VSOP87D、视黄经、光行差） | `sun.rs` | 现 `astro.rs` 太阳部分 |
+| **月球理论（ELP 截断、λ/β/Δ、光行时）** | `moon.rs` | 现 `astro.rs` 月球部分 |
+| 参考系归算（岁差 IAU2006、章动、黄赤交角、黄道↔赤道） | `frames.rs` | 新增 |
+| 观测者（大地坐标、恒星时、视差、折射、时角→地平） | `observer.rs` | 新增 |
+| 级数系数（生成物） | `tables.rs` | 现同名 |
+
+比早先草案的 8 个文件少，理由（“better together or apart”）：
+
+* `jd` 与 `time_scales` 是同一份知识 → 合并为 `time.rs`（原名 `jd` 太窄：里面还有 ΔT 与 `DateTime`）
+* `precession` + `nutation` + `obliquity` 三者互锁（没有单独使用的场景）→ 一个 `frames.rs`
+* `sidereal` 只被观测者用 → 并入 `observer.rs`
+
+### 公开接口：设计两次
+
+三个消费者真正要的东西：
+
+* `nongli`：太阳视黄经（及其反解）、朔时刻
+* `moon`：月球的位置与形状
+* 不变量：两个 crate 都不应该学会“归算配方”（光行时→章动→岁差→视差→折射的**顺序与取舍**）
+
+**设计 A（分层库，即早先草案暗示的）**：每个阶段一个 `pub fn`，分布在 6 个模块。
+
+> 接口 ≈ 实现。配方泄漏给每个调用方；~15 个入口点；调用方必须知道 TT/UT1 之分、
+> 帧的定义、哪些改正可选。**否决**（Overexposure + Information Leakage）。
+
+**设计 B（一次深调用）**：`moon::observe(instant, observer) -> Observation`（一个 god struct）。
+
+> 接口极小，配方隐藏。但拿不到中间量（地心黄道位置本身就是合理的科学输出），
+> 且 struct 混了多个坐标系。**否决**（不够“somewhat general-purpose”）。
+
+**设计 C（值类型 + 分阶段转换 + 一步到位）—— 选它**
 
 ```rust
-// crates/ephemeris/src/moon.rs
-/// 月球地心**黄道**位置：黄经 λ、黄纬 β (度)，距离 Δ (km)。
-pub fn geocentric_ecliptic(jde_tt: f64) -> EclipticPosition;
+// crates/ephemeris/src/lib.rs
+
+/// 一个时刻。TT 与 UT1 都由它携带，避免把两种时间尺度搞混。
+pub struct Instant { /* tt_jd, ut1_jd 私有 */ }
+impl Instant {
+    /// 由 TT 儒略日构造（UT1 内部由 ΔT 推出）。
+    pub fn from_tt(tt_jd: f64) -> Self;
+    /// 由某历法下的地方民用时构造。`utc_offset_hours` 如 +8.0。
+    pub fn from_civil(dt: DateTime, cal: Calendar, utc_offset_hours: f64) -> Self;
+    pub fn tt_jd(&self) -> f64;
+}
+
+pub struct Observer { pub lat_deg: f64, pub lon_deg: f64, pub height_m: f64 }
+
+/// 地心黄道坐标，参考**当日平**分点。
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Ecliptic { pub lon_deg: f64, pub lat_deg: f64, pub distance_km: f64 }
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Equatorial { pub ra_deg: f64, pub dec_deg: f64, pub distance_km: f64 }
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Horizontal { pub azimuth_deg: f64, pub altitude_deg: f64 }
+
+// ---- 理论的“缝” ----
+/// 月球地心**黄道几何**位置（含光行时，不含章动；平黄道分点）。
+/// 这里就是将来换成 ELP/MPP02 或 DE440 时唯一要改的地方。
+pub fn moon_geocentric(t: Instant) -> Ecliptic;
+/// 太阳地心视黄经（真分点，含光行差与章动）。农历只需要这个。
+pub fn sun_apparent_longitude(t: Instant) -> f64;
+/// 解 `sun_apparent_longitude == target`，`near` 需落在该解 ±7 天内。
+pub fn sun_longitude_at(target_deg: f64, near: Instant) -> Instant;
+/// 第 k 次朔。
+pub fn new_moon(k: i64) -> Instant;
+
+// ---- 归算（配方藏在这里）----
+impl Ecliptic {
+    /// 平黄道 → **视**黄道（真分点）：加章动。
+    pub fn apparent(self, t: Instant) -> Ecliptic;
+    /// 黄道 → 视赤道。
+    pub fn equatorial(self, t: Instant) -> Equatorial;
+}
+impl Equatorial {
+    /// 视赤道 → 站心地平。`refraction` 为真时计入大气折射。
+    pub fn horizontal(self, t: Instant, o: Observer, refraction: bool) -> Horizontal;
+}
+
+// ---- 常见情况一步到位 ----
+/// 从某地看到的月球：地平坐标 + 赤道坐标 + 黄道坐标 + 相位。
+pub fn observe_moon(t: Instant, o: Observer, refraction: bool) -> MoonObservation;
 ```
 
-缝只划在这一个函数上。底下现在是 Meeus 截断级数；将来换成 ELP/MPP02 或 DE440 拟合，
-**归算链一行不动**。
+接口大小：**4 个函数 + 3 个值与 3 个方法 + 2 个 struct**。
+比设计 A 的 ~15 个入口小，但保留了取中间量的能力。
+
+#### 为什么 `Instant` 要把 TT 与 UT1 藏起来
+
+“把 TT 当成 UT1 传进去”是这类库最常见的 bug，而月球 0.55″/秒 的角速度会让它
+立刻变成几十角秒的错。把两者绑在一个不透明值里，并让 `from_civil` 内部处理 ΔT，
+是这个错误**定义掉不存在**（principle 7），而不是多加一个参数靠调用方自觉。
+
+#### 缝的契约（**必须写进接口注释**）
+
+由 §0.2 的发现，`moon_geocentric` 必须写明：
+
+| 项 | 取值 |
+|---|---|
+| 参考点 | 地心 |
+| 参考面/点 | **平**黄道、**平**分点（*不是*真分点）|
+| 光行时 | **已含**（与 Meeus 一致，与 `erfa.moon98` 不同）|
+| 章动 | **不含**（由 `Ecliptic::apparent` 加）|
+| 单位 | 度、度、km |
+
+> 若不写明这五项，将来换理论时会引入 0.7″ 的不连续，而且很难查。
 
 > 暂不引入 `trait`：当前只有一个实现，trait 是空转。等真有第二个实现再抽。
 
@@ -139,7 +272,7 @@ pub fn geocentric_ecliptic(jde_tt: f64) -> EclipticPosition;
 | 折射模型 | `refco` |
 | 时角 ↔ 地平 | `hd2ae` / `ae2hd` |
 | ΔT | `dtdb` |
-| 月球（**仅自洽**，非真值） | `moon98` |
+| 月球（**仅可用于查转录；含 −0.7″ 系统偏差，见 §0.2**） | `moon98` |
 | 太阳（**仅自洽**，非真值） | `epv00` |
 
 **关键手法**：第 4 步验证归算链时，要把**我们自己算出的月球位置**喂给 `atco13`，
@@ -152,10 +285,12 @@ pub fn geocentric_ecliptic(jde_tt: f64) -> EclipticPosition;
 ### 第 1 步 — 拆 workspace（不依赖任何阻塞项）
 
 - [ ] 建 workspace：`Cargo.toml` 加 `[workspace]`，`members = ["crates/*"]`
-- [ ] `crates/ephemeris`：移入 `jd.rs`（重命名 `time_scales.rs` 或保留）、`astro.rs` 的通用部分、`tables.rs`
-- [ ] `crates/nongli`：移入 `calendar.rs`、`names.rs`、`bin/nongli.rs`，以及上表四个农历专用符号
+- [ ] `crates/ephemeris`：移入 `jd.rs`（改名 `time.rs`，加 `Instant`）、`astro.rs` 的通用部分、`tables.rs`
+- [ ] `crates/nongli`：移入 `calendar.rs`、`names.rs`、`bin/nongli.rs`，新建 `terms.rs`
+      放下表中的 6 个农历专用符号（含 `solve_sun_longitude` 的**调用方**）
 - [ ] `crates/moon`：先建空壳
-- [ ] 时区参数化：`BEIJING_OFFSET_DAYS` → `UtcOffset` 参数，农历侧传 +8
+- [ ] 时区参数化：`BEIJING_OFFSET_DAYS` → `Instant::from_civil(.., utc_offset_hours)`，农历侧传 +8
+- [ ] **按 §2 的设计落 `ephemeris` 的公开接口**（`Instant` / `Observer` / 三个值类型 / 四个函数）
 - [ ] `tools/gen_tables.py` 输出路径改到 `crates/ephemeris/src/tables.rs`
 - [ ] `tools/*.py`、`probe/*.py` 里的 `cargo run --example` 路径改到新 crate
 - [ ] README / `docs/ambiguity.md` 里的路径与用法同步
@@ -164,19 +299,23 @@ pub fn geocentric_ecliptic(jde_tt: f64) -> EclipticPosition;
 - [ ] `cargo test --workspace` 全绿，测试数与重构前一致（21 + doctest），**一个都不少**
 - [ ] `nongli` CLI 对参考集输出**逐字节不变**（重构不该改变任何结果）
 - [ ] `grep -rE '冬至|WINTER_SOLSTICE|term_index|solar_term|DEG_PER_TERM' crates/ephemeris/src/` → **0 命中**
+- [ ] `crates/nongli` 不依赖 `crates/moon`，`crates/ephemeris` 不依赖二者（“依赖方向”那节）
 - [ ] 仍然零依赖（`cargo tree` 只有本仓库的 crate；已确认当前为 `nongli v0.1.0` 单行）
 - [ ] `probe/dtreference.py` 与 `crates/ephemeris/src/jd.rs` 的 256 点核对仍为 0 不一致
 
 ### 第 2 步 — 月球的 λ、β、Δ（缝就位）
 
 - [ ] `tools/gen_tables.py` 加回月球黄纬表（`probe/moon_test.py` 的 `TB` 60 项）
-- [ ] `geocentric_ecliptic(jde_tt) -> EclipticPosition`：求和黄经**与距离**两列
+- [ ] 实现 `moon_geocentric(t) -> Ecliptic`：求和黄经、**黄纬**、距离三列
       （`MOON_LON` 第 6 列 Σr 现在被 `_cr` 丢掉，是现成的）
-- [ ] 黄纬求和 + Meeus 47.B 附加项
+- [ ] 按 §2 “缝的契约” 五项写接口注释（地心 / 平黄道平黄经 / 已含光行时 / 不含章动 / 度·度·km）
+- [ ] 加一个 `#[cfg(test)]` 开关把光行时关掉，以便与 `erfa.moon98` 对拍
 
 **验收**
 - [ ] Δ 与 `erfa.moon98` 的 `|r|` 差 < 0.1 km（同一级数，属转录检查）
 - [ ] β 与 `erfa.moon98` 的纬度差 < 0.01″
+- [ ] **关掉光行时后**，λ 与 `erfa.moon98` 差 < 0.1″；开着时差应在 **−0.70″±0.05″**
+      （若不符合，说明 §0.2 的结论在这个实现里不成立）
 - [ ] Meeus 例 47.a 的黄经仍逐位一致（回归）
 
 ### 第 3 步 — 岁差 / 章动 / 黄赤交角 / 赤道坐标
