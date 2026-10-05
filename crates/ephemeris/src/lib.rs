@@ -8,7 +8,8 @@
 //! * [`time`] —— 儒略日、历法换算、ΔT。不预设时区。
 //! * [`sun`] —— VSOP87D 地球级数、太阳地心视黄经。
 //! * [`moon`] —— ELP2000-82B 截断级数。**理论之"缝"**，换更高精度理论只动这里。
-//! * [`frames`] —— 参考系归算（章动，岁差等后续加入）。
+//! * [`frames`] —— 参考系归算（黄赤交角、章动、黄道↔赤道）。
+//! * [`observer`] —— 恒星时、站心视差、大气折射、地平坐标。
 //! * `angle` —— 角度归化，crate 内部工具。
 //!
 //! ## 时间尺度约定
@@ -32,6 +33,7 @@
 
 pub mod frames;
 pub mod moon;
+pub mod observer;
 pub mod sun;
 pub mod time;
 
@@ -45,6 +47,7 @@ pub(crate) mod tables;
 pub(crate) mod frames_tables;
 
 pub use frames::{mean_obliquity, nutation, true_obliquity, Ecliptic, Equatorial, Nutation};
+pub use observer::{gast, gmst, Atmosphere, Horizontal, Observer};
 pub use moon::{moon_apparent_longitude, moon_geocentric, new_moon, new_moon_index_near};
 pub use sun::{
     sun_apparent_longitude, sun_longitude_at, MEAN_LONGITUDE_AT_J2000_DEG,

@@ -191,6 +191,7 @@ python probe/dtshift.py         # ΔT 偏移对闰月结构的影响
 python probe/dtreference.py     # ΔT 参考实现自检（与 crates/ephemeris/src/time.rs 逐点核对）
 python tools/mooncheck.py       # 月球 λ/β/Δ 对 erfa.moon98 逐点比对
 python tools/framecheck.py      # 章动/黄赤交角 对 ERFA 逐点比对
+python tools/observercheck.py   # 恒星时对 ERFA 逐点比对（地平坐标见脚本注释）
 python tools/deadpub.py         # 列出没有消费者的公开项（rustc 不会警告 pub）
 ```
 
@@ -218,9 +219,10 @@ crates/ephemeris/     通用星历（零依赖，不知道任何农历概念）
   src/sun.rs          VSOP87D 地球级数、太阳地心视黄经
   src/moon.rs         ELP2000-82B 截断级数 —— 理论之"缝"
   src/frames.rs       Ecliptic/Equatorial 值类型、黄赤交角、章动、黄道→赤道
+  src/observer.rs     恒星时、站心视差、大气折射、地平坐标
   src/angle.rs        角度归化、角度-时刻求根
   src/tables.rs       自动生成的级数系数
-  examples/{dt_dump,moon_check,frame_check}.rs  机器可读导出，供 tools/ 核对
+  examples/{dt_dump,moon_check,frame_check,observer_check}.rs  供 tools/ 核对
 crates/nongli/        农历：编排规则 + 命名 + 命令行
   src/calendar.rs     编排规则（4.2–4.5）与农历日期
   src/terms.rs        二十四节气（"冬至 = 第 0 个节气"这一约定）
