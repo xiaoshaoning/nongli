@@ -216,6 +216,16 @@ src/tables.rs    自动生成的级数系数
 src/bin/nongli.rs  命令行
 examples/        机器可读的星历导出（供校验脚本使用）
 tools/           系数生成与校验脚本
-probe/           系数来源与初步验证脚本
-docs/            GB/T 33661-2017 原文、OCR 文本、唯一性分析
+probe/           系数来源、ΔT 参考实现与初步验证脚本
+docs/            GB/T 33661-2017 原文、OCR 文本、唯一性分析、后续计划
 ```
+
+## 后续计划
+
+[`docs/plan.md`](docs/plan.md) 记录了月相/月球位置 app 与 workspace 重构的计划与清单。
+
+其中一条必须先说清楚，以免误读本文的精度表：
+**上文“月球视黄经 0.088″”是与 `erfa.moon98` 的比对，而 `erfa.moon98` 就是本仓库
+所用的同一套 Meeus 截断级数——它只证明系数没抄错，不是绝对精度。**
+该理论对 ELP/MPP02 的绝对精度是 **RMS 2.9″、最坏 18.3″（位置 6–32 km）**，
+见 [`docs/plan.md`](docs/plan.md) 第 0 节。
