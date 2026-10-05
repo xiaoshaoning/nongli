@@ -93,7 +93,7 @@ pub fn gmst(t: Instant) -> f64 {
 /// `ee = Δψ·cos(ε_A) + eect00`）取**平**黄赤交角 ε_A，不是真交角。
 ///
 /// 曾经写成 `true_obliquity`（ε_A + Δε）——错得小（3e-4″），但定义就是平交角。
-/// 交角章动 Δε 进的是赤道坐标（见 [`Ecliptic::equatorial`]），不进恒星时。
+/// 交角章动 Δε 进的是赤道坐标（见 [`Equatorial`] 那一侧），不进恒星时。
 ///
 /// 补充项 `eect00`（±0.003″）本实现未含。
 pub fn gast(t: Instant) -> f64 {
