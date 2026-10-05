@@ -112,7 +112,7 @@ def main():
         s = read(d)
         for key, v in tracked.items():
             # 生成值本身在别处出现 = 手抄了确切数字
-            if f'{v:g}' in s and key not in ('sun_dist_med_abs',):
+            if f'{v:g}' in s:
                 bad.append(f'{d}: 出现了确切数字 {v:g}（{key}）——'
                            f'只写量级并链到 docs/accuracy.md')
 
