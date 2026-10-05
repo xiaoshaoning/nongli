@@ -1,0 +1,17 @@
+[package]
+name = "nongli"
+version = "0.1.0"
+edition = "2021"
+description = "中国农历 (GB/T 33661-2017) 编算 — Chinese lunisolar calendar"
+license = "MIT"
+
+[lib]
+name = "nongli"
+path = "src/lib.rs"
+
+[[bin]]
+name = "nongli"
+path = "src/bin/nongli.rs"
+
+[profile.release]
+opt-level = 3
