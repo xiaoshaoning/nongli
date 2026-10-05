@@ -105,12 +105,11 @@ SOFA 文档原文：
 nongli/                        workspace root
 ├─ Cargo.toml                  [workspace] members = ["crates/*"]
 ├─ crates/
-│  ├─ ephemeris/               通用天文（零依赖，不知道任何农历概念）
-│  │  └─ src/{lib,time,sun,moon,frames,observer,tables}.rs
-│  ├─ nongli/                  农历：GB/T 第 4/6 章规则 + CLI（现 src/ 搬入）
+│  ├─ ephemeris/               通用天文（零依赖，不知道任何农历概念）✅
+│  │  └─ src/{lib,time,sun,moon,frames,angle,tables}.rs   （observer 见第 4 步）
+│  ├─ nongli/                  农历：GB/T 第 4/6 章规则 + CLI ✅
 │  │  └─ src/{lib,calendar,names,terms,bin/nongli.rs}
-│  └─ moon/                    月相与月球位置 app
-│     └─ src/{lib,bin/moon.rs}
+│  └─ moon/                    月相与月球位置 app   （第 5 步再建）
 ├─ tools/                      生成器与校验脚本（跨 crate）
 ├─ probe/
 ├─ docs/
@@ -126,22 +125,25 @@ moon   ──> ephemeris          （若以后要显示农历日期，再加 moo
 
 ### 划界原则：按**知识**划分，不按文件
 
-`ephemeris` **不得知道**任何农历概念。现在 `src/astro.rs` 里混着下面这些农历专用的
-符号，第 1 步要处理：
+`ephemeris` **不得知道**任何农历概念。第 1 步之前 `src/astro.rs` 里混着下面这些
+农历专用的符号，现已按下表归位：
 
-| 现在的符号 | 为什么是农历专用 | 去向 |
+| 第 1 步之前的符号 | 为什么是农历专用 | 去向 |
 |---|---|---|
-| `WINTER_SOLSTICE_LONGITUDE` | “冬至”是农历概念（附录 A 第 1 行） | 搬去 `nongli` |
-| `term_index` | “冬至是第 0 个节气”是农历约定 | 搬去 `nongli` |
-| `solar_term_jde` | “节气”是农历概念 | 搬去 `nongli` |
-| `solar_term_index_near` | 同上 | 搬去 `nongli` |
-| `DEG_PER_TERM` | 15° 只用在节气里 | 搬去 `nongli` |
-| `MEAN_LON_AT_J2000` / `MEAN_MOTION_DEG_PER_DAY` | 只是节气求根的初值估计 | 搬去 `nongli` |
-| `solve_sun_longitude` | “太阳黄经 = 给定值”**本身是通用的** | 重命名 `sun_longitude_at` 后**留在 `ephemeris`** |
-| `new_moon_index_near` | 月相 app 也要用（算月龄） | **留在 `ephemeris`** |
+| ✅ `WINTER_SOLSTICE_LONGITUDE` | “冬至”是农历概念（附录 A 第 1 行） | `nongli/src/terms.rs` |
+| ✅ `term_index` | “冬至是第 0 个节气”是农历约定 | `nongli/src/terms.rs` |
+| ✅ `solar_term_jde` | “节气”是农历概念 | `nongli/src/terms.rs` |
+| ✅ `solar_term_index_near` | 同上 | `nongli/src/terms.rs` |
+| ✅ `DEG_PER_TERM` | 15° 只用在节气里 | `nongli/src/terms.rs` |
+| ✅ `MEAN_LONGITUDE_AT_J2000_DEG` / `MEAN_MOTION_DEG_PER_DAY` | 是**太阳本身**的量，不是农历 | **留在 `ephemeris/src/sun.rs`** |
+| ✅ `solve_sun_longitude` | “太阳黄经 = 给定值”**本身是通用的** | 重命名为 `sun_longitude_at`，留在 `ephemeris/src/sun.rs` |
+| ✅ `new_moon_index_near` | 月相 app 也要用（算月龄） | **留在 `ephemeris/src/moon.rs`** |
 
-另有一处**时区硬编码**要参数化：`jd.rs::BEIJING_OFFSET_DAYS` 与 `tt_to_beijing_jdn`。
-通用代码不该假设时区是 +8。
+时区硬编码也已消除（第 1 步）：`BEIJING_OFFSET_DAYS` 从 `ephemeris` 移除，
+换成 `tt_to_jdn(jd_tt, utc_offset_hours)` / `jdn_in_offset(jd_ut1, offset_hours)`；
+`nongli::BEIJING_OFFSET_HOURS = 8.0` 是**农历的政策**，留在 `nongli`。
+
+模块划分与接口设计见下面两节。
 
 ### 模块划分：按**知识**，不按教科书章节，也不按执行顺序
 
@@ -184,6 +186,9 @@ moon   ──> ephemeris          （若以后要显示农历日期，再加 moo
 // crates/ephemeris/src/lib.rs
 
 /// 一个时刻。TT 与 UT1 都由它携带，避免把两种时间尺度搞混。
+///
+/// **第 2 步才落**（第 1 步只做到参数化时区）：它此刻没有生产者也没有消费者，
+/// 提前建出来是脚手架。见第 1 步末尾"实施中偏离计划的两处"。
 pub struct Instant { /* tt_jd, ut1_jd 私有 */ }
 impl Instant {
     /// 由 TT 儒略日构造（UT1 内部由 ΔT 推出）。
@@ -282,26 +287,36 @@ pub fn observe_moon(t: Instant, o: Observer, refraction: bool) -> MoonObservatio
 
 ## 4. 清单
 
-### 第 1 步 — 拆 workspace（不依赖任何阻塞项）
+### 第 1 步 — 拆 workspace（不依赖任何阻塞项）✅ 已完成
 
-- [ ] 建 workspace：`Cargo.toml` 加 `[workspace]`，`members = ["crates/*"]`
-- [ ] `crates/ephemeris`：移入 `jd.rs`（改名 `time.rs`，加 `Instant`）、`astro.rs` 的通用部分、`tables.rs`
-- [ ] `crates/nongli`：移入 `calendar.rs`、`names.rs`、`bin/nongli.rs`，新建 `terms.rs`
-      放下表中的 6 个农历专用符号（含 `solve_sun_longitude` 的**调用方**）
-- [ ] `crates/moon`：先建空壳
-- [ ] 时区参数化：`BEIJING_OFFSET_DAYS` → `Instant::from_civil(.., utc_offset_hours)`，农历侧传 +8
-- [ ] **按 §2 的设计落 `ephemeris` 的公开接口**（`Instant` / `Observer` / 三个值类型 / 四个函数）
-- [ ] `tools/gen_tables.py` 输出路径改到 `crates/ephemeris/src/tables.rs`
-- [ ] `tools/*.py`、`probe/*.py` 里的 `cargo run --example` 路径改到新 crate
-- [ ] README / `docs/ambiguity.md` 里的路径与用法同步
+- [x] 建 workspace：`Cargo.toml` 加 `[workspace]`，`members = ["crates/*"]`
+- [x] `crates/ephemeris`：`jd.rs` → `time.rs`、`astro.rs` 拆为 `angle/sun/moon/frames`、`tables.rs`
+- [x] `crates/nongli`：`calendar.rs`、`names.rs`、新建 `terms.rs`、`bin/nongli.rs`
+- [x] 时区参数化：`tt_to_beijing_jdn` → `tt_to_jdn(jd_tt, utc_offset_hours)` +
+      `jdn_in_offset`；`BEIJING_OFFSET_HOURS` 移到 `nongli`（它是农历的政策）
+- [x] `tools/gen_tables.py` 输出改到 `crates/ephemeris/src/tables.rs`
+- [x] `tools/*.py`、`probe/*.py` 的 `cargo run` 加 `-p <crate>`；`examples/` 各归其位
+- [x] README / `docs/ambiguity.md` / `docs/plan.md` 路径同步
 
 **验收**
-- [ ] `cargo test --workspace` 全绿，测试数与重构前一致（21 + doctest），**一个都不少**
-- [ ] `nongli` CLI 对参考集输出**逐字节不变**（重构不该改变任何结果）
-- [ ] `grep -rE '冬至|WINTER_SOLSTICE|term_index|solar_term|DEG_PER_TERM' crates/ephemeris/src/` → **0 命中**
-- [ ] `crates/nongli` 不依赖 `crates/moon`，`crates/ephemeris` 不依赖二者（“依赖方向”那节）
-- [ ] 仍然零依赖（`cargo tree` 只有本仓库的 crate；已确认当前为 `nongli v0.1.0` 单行）
-- [ ] `probe/dtreference.py` 与 `crates/ephemeris/src/jd.rs` 的 256 点核对仍为 0 不一致
+- [x] `cargo test --workspace` 全绿：**ephemeris 9 + nongli 16 = 25 个单测 + 1 doctest**，
+      重​​构前的 21 个一个不少（逐个核对过），新增 4 个
+- [x] `nongli` CLI 对参考集输出**逐字节相同**（sha256 比对，12 个调用场景）
+- [x] `ephemeris` 的**代码**中农历概念 0 命中；仅 `lib.rs` 保留两行显式声明边界
+- [x] 仍然零依赖（`cargo tree` 只有 `ephemeris` 与 `nongli` 两个节点）
+- [x] 依赖方向单向 `nongli → ephemeris`
+- [x] `probe/dtreference.py` 与 `crates/ephemeris/src/time.rs` 的 **256 点核对 0 不一致**
+
+**实施中偏离计划的两处（已记录理由）**
+
+1. **没有引入 `Instant`。** 计划第 1 步写了要落 `Instant`，但它此刻没有生产者也没有
+   消费者：现有代码里"TT 儒略日 → 北京日"只有一个调用点，参数化足以解决；而
+   `from_civil` 要等到第 5 步。此刻建它属于脚手架。**改到第 2 步**，
+   与它的生产者（`moon_geocentric`）和消费者一起落。
+2. **没有建 `crates/moon` 空壳。** 空 crate 是纯脚手架，等第 5 步有内容再建。
+
+**同时清掉的三处小泄漏**（原计划未列）：`frames.rs` / `time.rs` 里用"对农历无影响"
+论证设计取舍的三处注释，改为按精度本身论证。
 
 ### 第 2 步 — 月球的 λ、β、Δ（缝就位）
 

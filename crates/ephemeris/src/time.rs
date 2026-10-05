@@ -1,7 +1,9 @@
-//! 儒略日、公历/儒略历换算、ΔT (TT−UT) 模型。
+//! 时间：儒略日、公历/儒略历换算、ΔT (TT−UT1) 模型。
 //!
-//! 农历以**北京时间**为准 (GB/T 33661-2017 4.1)，而天文级数以 TT 为时间变量，
-//! 因此需要一个 ΔT 模型把 TT 换算到平太阳时。
+//! 天文级数以 **TT** 为自变量，而"哪一天"是**民用时**的概念，两者相差 ΔT 加时区
+//! 偏移。本模块把这两步分开：ΔT 在这里，时区由调用方以 `utc_offset_hours` 传入。
+//!
+//! 注意本模块**不预设任何时区**：用哪个时区是调用方的政策。
 
 /// 历法：普通日历（公历）或儒略历。
 ///
@@ -14,9 +16,6 @@ pub enum Calendar {
     /// 儒略历 (Julian)。
     Julian,
 }
-
-/// 北京时间相对 UT 的偏移 (天)。
-pub const BEIJING_OFFSET_DAYS: f64 = 8.0 / 24.0;
 
 /// J2000.0 历元 (2000-01-01 12:00 TT) 的儒略日。
 pub const J2000: f64 = 2451545.0;
@@ -60,7 +59,7 @@ pub fn ymd_from_jdn(jdn: i64, cal: Calendar) -> (i64, u32, u32) {
 /// 日编号 → 该日 0 时的儒略日。
 ///
 /// 不含时区信息：时区只是在“儒略日 → 日编号”这一步加上偏移，
-/// 见 [`tt_to_beijing_jdn`]。
+/// 见 [`jdn_in_offset`] 与 [`tt_to_jdn`]。
 #[inline]
 pub fn jd_from_jdn(jdn: i64) -> f64 {
     jdn as f64 - 0.5
@@ -78,8 +77,8 @@ pub fn jdn_from_jd(jd: f64) -> i64 {
 /// [`LunarDate::from_datetime`](crate::LunarDate::from_datetime) 按北京时间解释，
 /// [`LunarDate::from_utc`](crate::LunarDate::from_utc) 按 UTC 解释）。
 ///
-/// 农历日以北京时间的 0 时为界（标准 3.17），所以求农历时只有“落在哪一天”
-/// 才要紧，时分秒仅用于跨日判断。
+/// 民用日的边界由时区决定，所以"落在哪一天"只与日编号和时区有关，
+/// 时分秒仅用于跨日判断。
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct DateTime {
     pub year: i64,
@@ -121,8 +120,7 @@ impl DateTime {
 
     /// 该时刻的儒略日（该历法下日编号的 0 时起算）。
     ///
-    /// 不含时区：要得到北京时间的日编号，需再加上
-    /// [`BEIJING_OFFSET_DAYS`] 后用 [`jdn_from_jd`] 取整。
+    /// 不含时区：要得到某个时区下的日编号，用 [`jdn_in_offset`]。
     pub fn jd(&self, cal: Calendar) -> f64 {
         jd_from_jdn(self.jdn(cal)) + self.day_fraction()
     }
@@ -168,7 +166,7 @@ fn observed_delta_t(y: f64) -> f64 {
 /// 多项式，并在表的两端做**增量衔接**以保证连续（即只取多项式的变化量）。
 ///
 /// **精度说明**：近几十年优于 0.1 s；1900–2005 年优于 1 s；再往外 ΔT 本身
-/// 不确定度迅速增大——±4000 年可达小时量级，这是超长期农历日界的主要限制。
+/// 不确定度迅速增大——±4000 年可达小时量级，这是超长期"日界"判定的主要限制。
 pub fn delta_t_seconds(decimal_year: f64) -> f64 {
     let (first, last) = (DELTA_T_OBSERVED[0].0, DELTA_T_OBSERVED[DELTA_T_OBSERVED.len() - 1].0);
     if (first..=last).contains(&decimal_year) {
@@ -257,13 +255,20 @@ fn delta_t_series(decimal_year: f64) -> f64 {
     -20.0 + 32.0 * u * u
 }
 
-/// TT 儒略日 → 北京时间日编号 (农历日)。
+/// UT1 儒略日 → 在给定时区下的民用日编号。
 ///
-/// 步骤：TT → UT1 (减 ΔT) → 北京时间 (+8 h) → 取整日。
-pub fn tt_to_beijing_jdn(jd_tt: f64) -> i64 {
+/// `utc_offset_hours` 例如北京时间为 +8.0。这是"某瞬间落在哪一天"的一般形式；
+/// 时区是一种**政策**，由调用方决定，本 crate 不预设立场。
+pub fn jdn_in_offset(jd_ut1: f64, utc_offset_hours: f64) -> i64 {
+    jdn_from_jd(jd_ut1 + utc_offset_hours / 24.0)
+}
+
+/// TT 儒略日 → 在给定时区下的民用日编号。
+///
+/// 步骤：TT → UT1 (减 ΔT) → 加时区偏移 → 取整日。
+pub fn tt_to_jdn(jd_tt: f64, utc_offset_hours: f64) -> i64 {
     let dt = delta_t_seconds(decimal_year_from_jd(jd_tt));
-    let jd_ut = jd_tt - dt / 86400.0;
-    jdn_from_jd(jd_ut + BEIJING_OFFSET_DAYS)
+    jdn_in_offset(jd_tt - dt / 86400.0, utc_offset_hours)
 }
 
 #[cfg(test)]
@@ -290,7 +295,7 @@ mod tests {
 
     #[test]
     fn known_jdn() {
-        // 1949-10-01 (GB/T 33661-2017 6.3.2 的干支纪日参考日)
+        // 1949-10-01：一个已核对的 JDN 锚点
         assert_eq!(jdn_from_ymd(1949, 10, 1, Calendar::Gregorian), 2433191);
         assert_eq!(jdn_from_ymd(2000, 1, 1, Calendar::Gregorian), 2451545);
     }

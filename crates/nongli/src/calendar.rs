@@ -6,9 +6,13 @@
 //! * 4.4 某十一月到下一个十一月(不含)之间有 13 个月时置闰，取最先出现且不含中气的月为闰月
 //! * 4.5 十一月之后第 2 个(不计闰月)农历月为年的起始月
 
-use crate::astro::*;
-use crate::jd::*;
 use crate::names::*;
+use crate::terms::{is_mid_term, solar_term_jde, solar_term_on, term_range,
+                   WINTER_SOLSTICE_LONGITUDE};
+use crate::BEIJING_OFFSET_HOURS;
+use ephemeris::sun::sun_longitude_at;
+use ephemeris::{jd_from_jdn, jdn_from_ymd, jdn_in_offset, new_moon_index_near, new_moon_jde,
+                tt_to_jdn, ymd_from_jdn, Calendar, DateTime};
 
 /// 一个农历日期。
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -46,10 +50,10 @@ pub fn new_moon_on_or_before(jdn: i64) -> NewMoon {
     // 初值只需落在真值的 ±1 个朔望月内，故直接用日编号当儒略日估算。
     let mut k = new_moon_index_near(jd_from_jdn(jdn));
     for _ in 0..8 {
-        let s = tt_to_beijing_jdn(new_moon_jde(k));
+        let s = tt_to_jdn(new_moon_jde(k), BEIJING_OFFSET_HOURS);
         if s > jdn {
             k -= 1;
-        } else if tt_to_beijing_jdn(new_moon_jde(k + 1)) <= jdn {
+        } else if tt_to_jdn(new_moon_jde(k + 1), BEIJING_OFFSET_HOURS) <= jdn {
             k += 1;
         } else {
             return NewMoon { index: k, jdn: s };
@@ -57,42 +61,19 @@ pub fn new_moon_on_or_before(jdn: i64) -> NewMoon {
     }
     NewMoon {
         index: k,
-        jdn: tt_to_beijing_jdn(new_moon_jde(k)),
+        jdn: tt_to_jdn(new_moon_jde(k), BEIJING_OFFSET_HOURS),
     }
 }
 
 /// 冬至的 TT 儒略日，取给定公历年年末的那一次。
 pub fn winter_solstice_jde(greg_year: i64) -> f64 {
     let approx = jd_from_jdn(jdn_from_ymd(greg_year, 12, 22, Calendar::Gregorian));
-    solve_sun_longitude(approx, WINTER_SOLSTICE_LONGITUDE)
+    sun_longitude_at(WINTER_SOLSTICE_LONGITUDE, approx)
 }
 
 /// 冬至所在的北京时间日。
 pub fn winter_solstice_jdn(greg_year: i64) -> i64 {
-    tt_to_beijing_jdn(winter_solstice_jde(greg_year))
-}
-
-/// 覆盖 [`jdn_lo`, `jdn_hi`] 的节气序号范围（宽松 ±2）。
-fn term_range(jdn_lo: i64, jdn_hi: i64) -> core::ops::RangeInclusive<i64> {
-    let idx = |jdn: i64| solar_term_index_near(jd_from_jdn(jdn));
-    (idx(jdn_lo) - 2)..=(idx(jdn_hi) + 2)
-}
-
-/// 北京时间日 `jdn` 上若有节气，返回其名称。
-pub fn solar_term_on(jdn: i64) -> Option<&'static str> {
-    term_range(jdn, jdn)
-        .find(|&j| tt_to_beijing_jdn(solar_term_jde(j)) == jdn)
-        .map(|j| TERM_NAMES[term_index(j)])
-}
-
-/// `[jdn_lo, jdn_hi]` 区间内的全部节气：`(日, 名称)`。
-pub fn solar_terms_between(jdn_lo: i64, jdn_hi: i64) -> Vec<(i64, &'static str)> {
-    term_range(jdn_lo, jdn_hi)
-        .filter_map(|j| {
-            let d = tt_to_beijing_jdn(solar_term_jde(j));
-            (d >= jdn_lo && d <= jdn_hi).then(|| (d, TERM_NAMES[term_index(j)]))
-        })
-        .collect()
+    tt_to_jdn(winter_solstice_jde(greg_year), BEIJING_OFFSET_HOURS)
 }
 
 /// 由"岁"内的月序号求月名序号。
@@ -130,7 +111,7 @@ pub fn lunar_from_jdn(jdn: i64) -> LunarDate {
     let m_end = next_month11.jdn;
 
     let starts: Vec<i64> = (0..=nm)
-        .map(|i| tt_to_beijing_jdn(new_moon_jde(k0 + i as i64)))
+        .map(|i| tt_to_jdn(new_moon_jde(k0 + i as i64), BEIJING_OFFSET_HOURS))
         .collect();
     debug_assert_eq!(starts[0], m0);
     debug_assert_eq!(starts[nm], m_end);
@@ -139,10 +120,10 @@ pub fn lunar_from_jdn(jdn: i64) -> LunarDate {
     let leap_idx = if nm == 13 {
         let mut has_zhongqi = vec![false; nm];
         for j in term_range(m0, m_end - 1) {
-            if j.rem_euclid(2) != 0 {
-                continue; // 中气的黄经为 30° 的整数倍，对应偶数 j
+            if !is_mid_term(j) {
+                continue;
             }
-            let day = tt_to_beijing_jdn(solar_term_jde(j));
+            let day = tt_to_jdn(solar_term_jde(j), BEIJING_OFFSET_HOURS);
             if day >= m0 && day < m_end {
                 let i = starts.partition_point(|&s| s <= day) - 1;
                 has_zhongqi[i] = true;
@@ -206,7 +187,7 @@ impl LunarDate {
     /// 所以 UTC 时间早于 16:00 时落在同一个北京日，否则落到次日。
     pub fn from_utc(dt: DateTime) -> Self {
         let jd_ut = dt.jd(Calendar::Gregorian);
-        lunar_from_jdn(jdn_from_jd(jd_ut + BEIJING_OFFSET_DAYS))
+        lunar_from_jdn(jdn_in_offset(jd_ut, BEIJING_OFFSET_HOURS))
     }
 
     /// 该日对应的公历日期。
@@ -414,7 +395,7 @@ mod tests {
     fn two_zhongqi_free_months_takes_the_first() {
         let ws = winter_solstice_jdn(-124);
         let m11 = new_moon_on_or_before(ws);
-        let month_start = |i: i64| tt_to_beijing_jdn(new_moon_jde(m11.index + i));
+        let month_start = |i: i64| tt_to_jdn(new_moon_jde(m11.index + i), BEIJING_OFFSET_HOURS);
 
         let l = lunar_from_jdn(month_start(9));
         assert!(l.leap, "{l}");
@@ -465,14 +446,14 @@ mod tests {
             assert!(m0 <= ws && ws < m1, "year={year}: 冬至不在本岁第一个月内");
             if nm == 13 {
                 let starts: Vec<i64> = (0..=nm)
-                    .map(|i| tt_to_beijing_jdn(new_moon_jde(k0 + i as i64)))
+                    .map(|i| tt_to_jdn(new_moon_jde(k0 + i as i64), BEIJING_OFFSET_HOURS))
                     .collect();
                 let mut has = vec![false; nm];
                 for j in term_range(m0, m1 - 1) {
                     if j.rem_euclid(2) != 0 {
                         continue;
                     }
-                    let day = tt_to_beijing_jdn(solar_term_jde(j));
+                    let day = tt_to_jdn(solar_term_jde(j), BEIJING_OFFSET_HOURS);
                     if day >= m0 && day < m1 {
                         has[starts.partition_point(|&s| s <= day) - 1] = true;
                     }

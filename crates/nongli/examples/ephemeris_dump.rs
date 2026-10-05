@@ -1,12 +1,16 @@
-//! 把太阳/月球位置、朔与节气时刻按机器可读格式输出，供 tools/crosscheck.py
-//! 与 ERFA / astropy 参考实现比对。
+//! 把太阳/月球黄经、朔与节气时刻按机器可读格式输出，供 `tools/crosscheck.py`
+//! 与 `tools/daydiff.py` 对 ERFA / astropy 参考实现比对。
+//!
+//! 放在 `nongli` 而不是 `ephemeris`，是因为节气（`solar_term_jde`）属于农历侧；
+//! 只用到 `ephemeris` 的部分见 `crates/ephemeris/examples/dt_dump.rs`。
 //!
 //! ```text
 //! cargo run --release --example ephemeris_dump -- -1975 6025 [nm_step] [term_step]
 //! ```
 
-use nongli::astro::{moon_apparent_longitude, sun_apparent_longitude};
-use nongli::{new_moon_index_near, new_moon_jde, solar_term_index_near, solar_term_jde};
+use ephemeris::{moon_apparent_longitude, new_moon_index_near, new_moon_jde,
+                sun_apparent_longitude};
+use nongli::{solar_term_index_near, solar_term_jde};
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();

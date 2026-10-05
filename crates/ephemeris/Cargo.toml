@@ -1,0 +1,8 @@
+[package]
+name = "ephemeris"
+description = "通用星历：时间尺度、太阳与月球理论、参考系归算 —— 不含任何农历概念"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]

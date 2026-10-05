@@ -1,0 +1,13 @@
+[package]
+name = "nongli"
+description = "中国农历 (GB/T 33661-2017) 编算 — Chinese lunisolar calendar"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+ephemeris = { path = "../ephemeris" }
+
+[[bin]]
+name = "nongli"
+path = "src/bin/nongli.rs"

@@ -41,7 +41,7 @@
 
 ## 2. 方法
 
-三个脚本（`probe/` 与 `tools/`），全部可与 `src/jd.rs` 对齐后复现：
+三个脚本（`probe/` 与 `tools/`），全部可与 `crates/ephemeris/src/time.rs` 对齐后复现：
 
 | 脚本 | 做什么 |
 |---|---|
@@ -49,7 +49,7 @@
 | `probe/dtshift.py` | 把 ΔT 整体平移，看闰月结构是否跟着变 |
 | `tools/daydiff.py` | 本库与 ERFA/astropy 参考模型在"哪一天"上分歧多少次 |
 
-三个脚本共用 `probe/dtreference.py` 的 ΔT 实现，且该实现与 `src/jd.rs` **逐位一致**
+三个脚本共用 `probe/dtreference.py` 的 ΔT 实现，且该实现与 `crates/ephemeris/src/time.rs` **逐位一致**
 （已用 21 个采样点交叉核对，见第 8 节）。这一点很重要：如果两边 ΔT 不一致，
 比对出来的差异全是假的。
 
@@ -177,13 +177,13 @@
 ## 8. 复现
 
 ```bash
-python probe/dtreference.py       # ΔT 自检：与 IERS 实测比对 + 与 src/jd.rs 逐点核对
+python probe/dtreference.py       # ΔT 自检：与 IERS 实测比对 + 与 crates/ephemeris/src/time.rs 逐点核对
 python probe/ambiguity.py         # 第 3 节的余量分布
 python probe/dtshift.py           # 第 4 节的 ΔT 平移实验
 python tools/daydiff.py 1526 2526 # 附录 A 的日界不符统计
 ```
 
-`probe/dtreference.py` 与 `src/jd.rs` 各自实现了一份 ΔT（跨语言，无法避免），
+`probe/dtreference.py` 与 `crates/ephemeris/src/time.rs` 各自实现了一份 ΔT（跨语言，无法避免），
 因此第一个命令会调 `cargo run --example dt_dump` 把两边的 256 个采样点逐一对到
 1e-6 s。改 `DELTA_T_OBSERVED` 或分段多项式时，先跑它。
 

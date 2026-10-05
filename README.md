@@ -188,7 +188,7 @@ python tools/crosscheck.py      # 与 ERFA 比经度与时刻
 python tools/daydiff.py 1526 2526   # 统计日界不符的个数
 python probe/ambiguity.py       # 朔/中气距午夜的余量分布
 python probe/dtshift.py         # ΔT 偏移对闰月结构的影响
-python probe/dtreference.py     # ΔT 参考实现自检（与 src/jd.rs 逐点核对）
+python probe/dtreference.py     # ΔT 参考实现自检（与 crates/ephemeris/src/time.rs 逐点核对）
 ```
 
 ## 适用范围与限制
@@ -207,18 +207,30 @@ python probe/dtreference.py     # ΔT 参考实现自检（与 src/jd.rs 逐点�
 
 ## 目录
 
+Cargo workspace，按**知识**而非执行顺序划分：
+
 ```
-src/jd.rs        儒略日、公历/儒略历换算、ΔT
-src/astro.rs     太阳/月球视黄经、章动、朔与节气的求根
-src/calendar.rs  编排规则（4.2–4.5）与农历日期的组织
-src/names.rs     干支、生肖、月名、日名、节气名
-src/tables.rs    自动生成的级数系数
-src/bin/nongli.rs  命令行
-examples/        机器可读的星历导出（供校验脚本使用）
-tools/           系数生成与校验脚本
-probe/           系数来源、ΔT 参考实现与初步验证脚本
-docs/            GB/T 33661-2017 原文、OCR 文本、唯一性分析、后续计划
+crates/ephemeris/     通用星历（零依赖，不知道任何农历概念）
+  src/time.rs         儒略日、公历/儒略历、ΔT。不预设时区
+  src/sun.rs          VSOP87D 地球级数、太阳地心视黄经
+  src/moon.rs         ELP2000-82B 截断级数 —— 理论之"缝"
+  src/frames.rs       参考系归算（章动；岁差等见 docs/plan.md 第 3 步）
+  src/angle.rs        角度归化、角度-时刻求根
+  src/tables.rs       自动生成的级数系数
+  examples/dt_dump.rs ΔT 导出，供 probe/dtreference.py 核对
+crates/nongli/        农历：编排规则 + 命名 + 命令行
+  src/calendar.rs     编排规则（4.2–4.5）与农历日期
+  src/terms.rs        二十四节气（"冬至 = 第 0 个节气"这一约定）
+  src/names.rs        干支、生肖、月名、日名、节气名
+  src/bin/nongli.rs   命令行
+  examples/ephemeris_dump.rs  星历导出，供校验脚本使用
+tools/                系数生成与校验脚本
+probe/                系数来源、ΔT 参考实现、唯一性实测
+docs/                 GB/T 原文、OCR、唯一性分析、后续计划
 ```
+
+依赖方向单向：`nongli → ephemeris`。`nongli` 只重导出其公开签名里出现的
+`Calendar` / `DateTime`，其余星历接口请直接依赖 `ephemeris`。
 
 ## 后续计划
 

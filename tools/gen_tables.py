@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate src/tables.rs from the verified coefficient lists.
+"""Generate crates/ephemeris/src/tables.rs from the verified coefficient lists.
 
 Source of coefficients:
   Sun  : VSOP87D Earth, truncated as published in Meeus, "Astronomical
@@ -20,7 +20,7 @@ sys.path.insert(0, os.path.join(HERE, os.pardir, 'probe'))
 import vsop_test as V   # noqa: E402
 import moon_test as M   # noqa: E402
 
-OUT = os.path.join(HERE, os.pardir, 'src', 'tables.rs')
+OUT = os.path.join(HERE, os.pardir, 'crates', 'ephemeris', 'src', 'tables.rs')
 
 
 def vsop(name, terms):

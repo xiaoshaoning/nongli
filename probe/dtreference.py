@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""ΔT 参考实现 —— **必须与 src/jd.rs 保持一致**。
+"""ΔT 参考实现 —— **必须与 crates/ephemeris/src/time.rs 保持一致**。
 
 工具/探针脚本共用这一份，避免各脚本各写一套导致比对出现假的差异。
-改 src/jd.rs 的 ΔT 时，这里要同步改。
+改 crates/ephemeris/src/time.rs 的 ΔT 时，这里要同步改。
 
-* 1973–2025：IERS 实测值（内建小表，与 src/jd.rs 的 DELTA_T_OBSERVED 同源同值）
+* 1973–2025：IERS 实测值（内建小表，与 crates/ephemeris/src/time.rs 的 DELTA_T_OBSERVED 同源同值）
 * 其余年份：Espenak & Meeus (2006) 分段多项式，在表端做**增量衔接**以保证连续
 
 接口刻意分成两个名字，避免"把儒略日当年份"这类静默错误：
@@ -16,7 +16,7 @@
 import numpy as np
 import os
 
-# 与 src/jd.rs 的 DELTA_T_OBSERVED 完全一致
+# 与 crates/ephemeris/src/time.rs 的 DELTA_T_OBSERVED 完全一致
 DELTA_T_OBSERVED = [
     (1973.0, 43.38), (1974.0, 44.48), (1975.0, 45.48), (1976.0, 46.46), (1977.0, 47.52), (1978.0, 48.53),
     (1979.0, 49.59), (1980.0, 50.54), (1981.0, 51.38), (1982.0, 52.17), (1983.0, 52.96), (1984.0, 53.79),
@@ -100,7 +100,7 @@ def _scalar_year(y):
 
 
 def delta_t_from_year(decimal_year):
-    """**小数年** → ΔT (秒)。与 src/jd.rs::delta_t_seconds 同逻辑。
+    """**小数年** → ΔT (秒)。与 crates/ephemeris::delta_t_seconds 同逻辑。
 
     注意参数是"年"不是"儒略日"。要传儒略日用 :func:`delta_t_from_jd`。
     """
@@ -136,10 +136,10 @@ if __name__ == '__main__':
     print(f'E-M 多项式若单独使用，最大偏差: '
           f'{max(abs(series(y) - delta_t_from_year(float(y))) for y in range(1973, 2026)):.2f} s')
 
-    # 2) 与 src/jd.rs 逐点核对（跨语言同一份知识，必须能机器校验）
+    # 2) 与 crates/ephemeris 逐点核对（跨语言同一份知识，必须能机器校验）
     root = os.path.join(os.path.dirname(os.path.abspath(__file__)), os.pardir)
     out = subprocess.run(
-        ['cargo', 'run', '--release', '--quiet', '--example', 'dt_dump'],
+        ['cargo', 'run', '--release', '--quiet', '-p', 'ephemeris', '--example', 'dt_dump'],
         cwd=root, capture_output=True, text=True, check=True,
     ).stdout
     n, bad = 0, []
@@ -153,7 +153,7 @@ if __name__ == '__main__':
         n += 1
         if abs(got - want) > 1e-6:
             bad.append((tag, x, want, got))
-    print(f'与 src/jd.rs 核对 {n} 点，不一致 {len(bad)} 点')
+    print(f'与 crates/ephemeris/src/time.rs 核对 {n} 点，不一致 {len(bad)} 点')
     for tag, x, want, got in bad[:10]:
         print(f'  BAD {tag} {x}: rust={want:.6f} py={got:.6f}')
     raise SystemExit(1 if bad else 0)

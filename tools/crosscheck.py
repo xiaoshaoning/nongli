@@ -40,7 +40,7 @@ def ref_longitudes(jd_tt):
 def main():
     y0, y1 = -1975, 6025
     out = subprocess.run(
-        ['cargo', 'run', '--release', '--quiet', '--example', 'ephemeris_dump', '--',
+        ['cargo', 'run', '--release', '--quiet', '-p', 'nongli', '--example', 'ephemeris_dump', '--',
          str(y0), str(y1)],
         cwd=ROOT, capture_output=True, text=True, check=True,
     ).stdout

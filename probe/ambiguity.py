@@ -19,7 +19,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import dtreference  # noqa: E402  (ΔT 参考实现，与 src/jd.rs 保持一致)
+import dtreference  # noqa: E402  (ΔT 参考实现，与 crates/ephemeris/src/time.rs 保持一致)
 
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -37,7 +37,7 @@ def margins(jds):
 def main():
     y0, y1 = -1975, 6026
     out = subprocess.run(
-        ['cargo', 'run', '--release', '--quiet', '--example', 'ephemeris_dump', '--',
+        ['cargo', 'run', '--release', '--quiet', '-p', 'nongli', '--example', 'ephemeris_dump', '--',
          str(y0), str(y1), '1', '1'],
         cwd=ROOT, capture_output=True, text=True, check=True,
     ).stdout

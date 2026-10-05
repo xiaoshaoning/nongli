@@ -22,7 +22,7 @@ from astropy.time import Time
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.join(HERE, os.pardir)
 sys.path.insert(0, os.path.join(ROOT, 'probe'))
-import dtreference  # noqa: E402  (ΔT 参考实现，与 src/jd.rs 保持一致)
+import dtreference  # noqa: E402  (ΔT 参考实现，与 crates/ephemeris 保持一致)
 
 solar_system_ephemeris.set('builtin')
 
@@ -60,7 +60,7 @@ def main():
     y0 = int(sys.argv[1]) if len(sys.argv) > 1 else 1526
     y1 = int(sys.argv[2]) if len(sys.argv) > 2 else 2526
     out = subprocess.run(
-        ['cargo', 'run', '--release', '--quiet', '--example', 'ephemeris_dump', '--',
+        ['cargo', 'run', '--release', '--quiet', '-p', 'nongli', '--example', 'ephemeris_dump', '--',
          str(y0), str(y1), '1', '1'],
         cwd=ROOT, capture_output=True, text=True, check=True,
     ).stdout

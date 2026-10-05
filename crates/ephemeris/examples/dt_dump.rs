@@ -8,7 +8,7 @@
 //! cargo run --release --example dt_dump
 //! ```
 
-use nongli::delta_t_seconds;
+use ephemeris::delta_t_seconds;
 
 fn main() {
     // 覆盖 ΔT 的每个分支边界，以及实测表的端点。
@@ -26,7 +26,7 @@ fn main() {
     for y in years {
         println!("DT {y} {:.6}", delta_t_seconds(y));
     }
-    // 儒略日入口也要一致（平闰/负年无关，这里只查时间尺度换算）
+    // 儒略日入口也要一致（历法闰年与负年无关，这里只查时间尺度换算）
     for jd in [2451545.0f64, 2440000.0, 990000.0, 3900000.0] {
         println!("JD {jd} {:.6}", delta_t_seconds(2000.0 + (jd - 2451545.0) / 365.25));
     }

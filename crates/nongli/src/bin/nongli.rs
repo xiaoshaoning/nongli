@@ -9,9 +9,14 @@
 //! nongli --sui 2026              # 打印 2026 岁(含闰月判定)
 //! ```
 
+use ephemeris::{jdn_from_ymd, new_moon_jde, tt_to_jdn, ymd_from_jdn, Calendar, DateTime};
 use nongli::calendar::{new_moon_on_or_before, winter_solstice_jdn};
-use nongli::jd::{jdn_from_ymd, ymd_from_jdn};
-use nongli::{new_moon_jde, tt_to_beijing_jdn, Calendar, DateTime, LunarDate, TERM_NAMES};
+use nongli::{LunarDate, TERM_NAMES};
+
+/// 北京时间日编号。农历以北京时间为准 (标准 4.1)。
+fn tt_to_jdn_beijing(tt_jd: f64) -> i64 {
+    tt_to_jdn(tt_jd, nongli::BEIJING_OFFSET_HOURS)
+}
 
 const WEEKDAYS: [&str; 7] = ["日", "一", "二", "三", "四", "五", "六"];
 
@@ -108,7 +113,7 @@ fn print_sui(year: i64) {
     println!("冬至落在 {year}-{wm:02}-{wd:02}");
     println!("本岁共 {nm} 个月{}", if nm == 13 { "，需要置闰" } else { "，为平年" });
     for i in 0..nm {
-        let jd = tt_to_beijing_jdn(new_moon_jde(month11.index + i));
+        let jd = tt_to_jdn_beijing(new_moon_jde(month11.index + i));
         let (yy, mm, dd) = ymd_from_jdn(jd, Calendar::Gregorian);
         // 岁内月序：0 = 十一月，之后按数序递增（闰月重复前一月名）
         let l = LunarDate::from_jdn(jd);
