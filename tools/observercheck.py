@@ -71,13 +71,35 @@ def main():
     mine_a = np.array([g[2] for g in gst])
     em = np.abs(wrap(mine_m - ref_m / D2R)) * 3600
     ea = np.abs(wrap(mine_a - ref_a / D2R)) * 3600
+
+    # 分点差的**定义**（erfa 的 ee00.c）：ee = dpsi*cos(epsA) + eect00。
+    # 前一项用**平**黄赤交角。拿 erfa 自己的 nut06a/obl06 拼出来，各历元都该对上。
+    dpsi = np.array([erfa.nut06a(jd[i], 0.0)[0] for i in range(len(Y))])
+    epsa = np.array([erfa.obl06(jd[i], 0.0) for i in range(len(Y))])
+    eect = np.array([erfa.eect00(jd[i], 0.0) for i in range(len(Y))])
+    ref_def = ref_m + dpsi * np.cos(epsa)          # 不含补充项：本实现的口径
+    ref_iau = ref_def + eect                       # 含补充项：完整的 IAU2000 分点差
+    ed = np.abs(wrap(mine_a - ref_def / D2R)) * 3600
+    ei = np.abs(wrap(mine_a - ref_iau / D2R)) * 3600
+
     for lo, hi in [(-4000, -1000), (-1000, -100), (-100, 100), (100, 1000), (1000, 4000)]:
         s = (Y >= lo) & (Y < hi)
         if s.any():
             print(f'  {lo:>6}..{hi:<6} n={s.sum():4}  GMST 最大 {em[s].max():10.5f}"  '
-                  f'GAST 最大 {ea[s].max():10.5f}"')
-    print(f'  GAST 的残差主要来自本实现用的 4 项缩写式章动（Δψ 误差 0.34"）')
-    print(f'  加上 IAU2000 方程分点的补充项（±20 世纪约 1.1"），见 docs/plan.md 第 4 步。')
+                  f'分点差定义最大 {ed[s].max():10.5f}"')
+    print(f'  GMST 全程最大 {em.max():.5f}"，GAST 对"定义"全程最大 {ed.max():.5f}"')
+    print(f'  差 IAU2000 完整分点差 {ei.max():.5f}"——这就是未含的补充项 eect00（±0.003"）。')
+
+    # gst06a 走的是 CIO 路线（ERA - 分点原点差 eors），而 eors 来自 s06 级数。
+    # erfa 自己的 s06.c 注明："s remains below 0.1 arcsecond throughout 1900-2100"
+    # ——超出这段，是它的多项式外推在发散，不是我们的 GAST 错。
+    ok = (Y >= 1900) & (Y <= 2100)
+    print('')
+    print(f'  对 erfa.gst06a（CIO 路线）：1900-2100 内最大 {ea[ok].max():.5f}"；')
+    print(f'  全程最大 {ea.max():.2f}"，但它出现在 |年-2000| 很大处——'
+          f'那段 erfa 的 s06 已超出自己声明的适用范围。')
+    print(f'  旁证：s06 是 5 次级数，故 gst06a-gmst06 与 Δψcos(ε_A) 之差按 t^3 发散'
+          f'（t=4 世纪 1.4"，t=40 世纪 2327"），而真正的分点差是有界的 ±20"。')
 
     # === 观测者几何 ===
     print('\n=== 观测者地心矢量（地球固连，对 erfa.gd2gc / WGS84）===')

@@ -189,8 +189,13 @@ pub fn observe(t: Instant, observer: &Observer, atmosphere: Option<Atmosphere>) 
 /// 两者都要用同一时刻的月球位置，所以放在一起算——早先在扫描里分别调用，
 /// 每个采样点把月球位置算了两遍。
 fn altitude_and_hour_angle(eq: Equatorial, t: Instant, observer: &Observer) -> (f64, f64) {
-    let alt = eq.horizontal(t, observer, None).altitude_deg.to_radians();
-    let last = (ephemeris::gast(t) + observer.lon_deg).to_radians();
+    // 高度与时角都只用到 GAST，所以只算一次（一次 IAU 2000A 章动 ~11 µs）。
+    let gast_deg = ephemeris::gast(t);
+    let alt = eq
+        .horizontal_at(gast_deg, observer, None)
+        .altitude_deg
+        .to_radians();
+    let last = (gast_deg + observer.lon_deg).to_radians();
     let ha = (last - eq.ra_deg.to_radians() + core::f64::consts::PI)
         .rem_euclid(core::f64::consts::TAU)
         - core::f64::consts::PI;

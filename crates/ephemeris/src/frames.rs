@@ -72,8 +72,13 @@ impl Ecliptic {
     /// 两个天体加的是**同一个** Δψ，所以在"朔"（日月黄经相等）的判定中它会自动抵消，
     /// 但求太阳黄经达到某个固定值的时刻（节气）时必须计入。
     pub fn apparent(self, t: Instant) -> ApparentEcliptic {
+        self.apparent_with(nutation(t))
+    }
+
+    /// 章动已知时用这个，免得再算一遍（一次 ~11 µs）。
+    fn apparent_with(self, n: Nutation) -> ApparentEcliptic {
         ApparentEcliptic {
-            lon_deg: norm360(self.lon_deg + nutation(t).dpsi_deg),
+            lon_deg: norm360(self.lon_deg + n.dpsi_deg),
             lat_deg: self.lat_deg,
             distance_km: self.distance_km,
         }
@@ -91,8 +96,10 @@ impl Ecliptic {
     /// 标准球面三角：
     /// `sin δ = sin β cos ε + cos β sin ε sin λ`，
     /// `α = atan2(sin λ cos ε − tan β sin ε, cos λ)`。
+    /// 章动只算一次，同时喂给黄经改正与真黄赤交角（此前两者各算一遍）。
     pub fn equatorial(self, t: Instant) -> Equatorial {
-        self.apparent(t).equatorial(t)
+        let n = nutation(t);
+        self.apparent_with(n).rotate(mean_obliquity(t) + n.deps_deg)
     }
 }
 
@@ -103,7 +110,12 @@ impl ApparentEcliptic {
     /// `sin δ = sin β cos ε + cos β sin ε sin λ`，
     /// `α = atan2(sin λ cos ε − tan β sin ε, cos λ)`。
     pub fn equatorial(self, t: Instant) -> Equatorial {
-        let eps = true_obliquity(t) * D2R;
+        self.rotate(true_obliquity(t))
+    }
+
+    /// 球面三角本体。真黄赤交角 ε 由调用方给定，这样在已知章动时不必再算一遍。
+    fn rotate(self, eps_deg: f64) -> Equatorial {
+        let eps = eps_deg * D2R;
         let (lam, bet) = (self.lon_deg * D2R, self.lat_deg * D2R);
         let (slam, clam) = lam.sin_cos();
         let (sbet, cbet) = bet.sin_cos();

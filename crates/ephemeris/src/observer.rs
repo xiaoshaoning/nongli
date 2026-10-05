@@ -16,7 +16,7 @@
 //! 且距离是**地心**距离。输出的方位角自**北**起向东为正。
 
 use crate::angle::{norm360, D2R, R2D};
-use crate::frames::{nutation, true_obliquity, Equatorial};
+use crate::frames::{mean_obliquity, nutation, Equatorial};
 use crate::time::{Instant, J2000};
 
 /// WGS84 椭球：长半轴 km 与扁率。
@@ -89,10 +89,15 @@ pub fn gmst(t: Instant) -> f64 {
 
 /// Greenwich **真**恒星时，度，[0,360)。
 ///
-/// `GAST = GMST + Δψ·cos ε`（分点差）。IAU2000 还定义了约 0.002″ 的补充项，
-/// 本实现未含——量级见表。
+/// `GAST = GMST + 分点差`。分点差按 IAU 2000 的定义（ERFA `ee00.c`：
+/// `ee = Δψ·cos(ε_A) + eect00`）取**平**黄赤交角 ε_A，不是真交角。
+///
+/// 曾经写成 `true_obliquity`（ε_A + Δε）——错得小（3e-4″），但定义就是平交角。
+/// 交角章动 Δε 进的是赤道坐标（见 [`Ecliptic::equatorial`]），不进恒星时。
+///
+/// 补充项 `eect00`（±0.003″）本实现未含。
 pub fn gast(t: Instant) -> f64 {
-    let ee = nutation(t).dpsi_deg * true_obliquity(t).to_radians().cos();
+    let ee = nutation(t).dpsi_deg * mean_obliquity(t).to_radians().cos();
     norm360(gmst(t) + ee)
 }
 
@@ -117,17 +122,19 @@ impl Observer {
 
     /// 观测者的地心位置矢量，**当日真赤道**系（x 轴取真分点），km。
     ///
-    /// 地球固连 → 绕 z 轴转 [`gast`]。
-    pub fn geocentric_km(&self, t: Instant) -> [f64; 3] {
+    /// 参数是 **GAST**（度）而不是 [`Instant`]：GAST 要算一次 IAU 2000A 章动
+    /// （~11 µs），而一次地平坐标换算里要用到它三次（观测者位置、观测者速度、时角）。
+    /// 让调用方一次算好传进来，就不会重复。见 [`Equatorial::horizontal`]。
+    pub fn geocentric_km(&self, gast_deg: f64) -> [f64; 3] {
         let [x, y, z] = self.geocentric_fixed_km();
-        let th = gast(t) * D2R;
+        let th = gast_deg * D2R;
         let (sth, cth) = th.sin_cos();
         [x * cth - y * sth, x * sth + y * cth, z]
     }
 
-    /// 观测者随地球自转的速度，km/s，同日坐标系。用于周日光行差。
-    fn velocity_km_s(&self, t: Instant) -> [f64; 3] {
-        let r = self.geocentric_km(t);
+    /// 观测者随地球自转的速度，km/s，同日坐标系。用于周日光行差。参数同 [`Observer::geocentric_km`]。
+    fn velocity_km_s(&self, gast_deg: f64) -> [f64; 3] {
+        let r = self.geocentric_km(gast_deg);
         // ω 沿 z 轴：v = ω × r
         [-EARTH_OMEGA * r[1], EARTH_OMEGA * r[0], 0.0]
     }
@@ -147,6 +154,20 @@ impl Equatorial {
         observer: &Observer,
         atmosphere: Option<Atmosphere>,
     ) -> Horizontal {
+        self.horizontal_at(gast(t), observer, atmosphere)
+    }
+
+    /// 同上，但 GAST 由调用方给定。**不需要** `Instant`——GAST 之后的步骤都与时间无关。
+    ///
+    /// 求 GAST 要算一次 IAU 2000A 章动（~11 µs）。调用方若在同一个瞬间还要拿 GAST
+    /// 做别的事（例如求时角），自己算一次传进来就省下一遍。理由同
+    /// [`Observer::geocentric_km`]。
+    pub fn horizontal_at(
+        self,
+        gast_deg: f64,
+        observer: &Observer,
+        atmosphere: Option<Atmosphere>,
+    ) -> Horizontal {
         // 地心矢量（km）
         let (sa, ca) = (self.ra_deg * D2R).sin_cos();
         let (sd, cd) = (self.dec_deg * D2R).sin_cos();
@@ -154,11 +175,11 @@ impl Equatorial {
         let geo = [d * cd * ca, d * cd * sa, d * sd];
 
         // 站心视差：减去观测者的地心位置
-        let obs = observer.geocentric_km(t);
+        let obs = observer.geocentric_km(gast_deg);
         let mut v = [geo[0] - obs[0], geo[1] - obs[1], geo[2] - obs[2]];
 
         // 周日光行差：观测者速度 ~0.46 km/s → ~0.32″
-        let vel = observer.velocity_km_s(t);
+        let vel = observer.velocity_km_s(gast_deg);
         let r = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
         for k in 0..3 {
             v[k] += vel[k] / C_KM_S * r;
@@ -170,7 +191,7 @@ impl Equatorial {
         let ra = v[1].atan2(v[0]);
 
         // 地方真恒星时 → 时角
-        let last = (gast(t) + observer.lon_deg) * D2R;
+        let last = (gast_deg + observer.lon_deg) * D2R;
         let h = last - ra;
 
         // 地平坐标：方位角自北起向东为正

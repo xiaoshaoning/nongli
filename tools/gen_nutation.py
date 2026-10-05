@@ -35,11 +35,20 @@ def parse_block(text, name):
     return rows
 
 
+# 系数小于此值（单位 0.1 微角秒）的项丢弃。
+#
+# 这不是偷工：1365 项里绝大多数远低于本 crate 的目标精度。按最坏情况（被丢的项
+# 全部同相相加）估计，阈值 100（= 1e-5 角秒）丢掉的总幅度 ≤ 0.0019″，
+# 而判据是 0.01″。换来的是项数 1365 -> 284，章动从 54 µs 降到约 11 µs。
+# 实测误差见 tools/framecheck.py。
+MIN_COEFF = 100.0
+
+
 def main():
     text = open(SRC, encoding='utf-8').read()
-    ls = parse_block(text, 'xls')
-    pl = parse_block(text, 'xpl')
-    print(f'日月项 {len(ls)}，行星项 {len(pl)}')
+    ls = [r for r in parse_block(text, 'xls') if max(abs(x) for x in r[5:]) >= MIN_COEFF]
+    pl = [r for r in parse_block(text, 'xpl') if max(abs(x) for x in r[13:]) >= MIN_COEFF]
+    print(f'日月项 {len(ls)}（阈值 {MIN_COEFF}），行星项 {len(pl)}')
 
     # 日月项：{nl,nlp,nf,nd,nom, sp,spt,cp, ce,cet,se}  -> 11 个数
     bad = [r for r in ls if len(r) != 11]
