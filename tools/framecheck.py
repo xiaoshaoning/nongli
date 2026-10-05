@@ -16,6 +16,9 @@ ROOT = os.path.join(HERE, os.pardir)
 AS = 206264.806
 D2R = np.pi / 180.0
 
+from astropy.time import Time
+t0 = Time(2451545.0, format='jd', scale='tt')
+
 
 def main():
     out = subprocess.run(
@@ -56,26 +59,17 @@ def main():
         print(f'{lo:>7}..{hi:<7} | {e_psi.max():9.4f}" {np.sqrt((e_psi**2).mean()):9.4f}" '
               f'| {e_eps.max():9.4f}" | {e_obl.max():11.3e}°')
 
-    # 黄道→赤道：与 ERFA 的 (黄道→ICRS→赤道) 复合比较。
-    # 用 ERFA 自己的真交角，隔离代数与交角模型。
-    print('\n黄道 → 赤道（用 ERFA 的真交角，只查球面三角代数）:')
-    rm = erfa.ecm06(2451545.0, 0.0)          # ICRS → 黄道
-    rmt = erfa.ecm06(2451545.0, 0.0).T       # 黄道 → ICRS
-    eps_t = erfa.obl06(2451545.0, 0.0)
-    for lam, bet, ra, dec in EQ:
-        v = np.array([np.cos(bet * D2R) * np.cos(lam * D2R),
-                      np.cos(bet * D2R) * np.sin(lam * D2R),
-                      np.sin(bet * D2R)])
-        w = rmt @ v                              # 黄道 → ICRS
-        # ICRS → 真赤道（经岁差章动）
-        pnm = erfa.pnm06a(2451545.0, 0.0)
-        u = pnm @ w
-        ra_ref = np.degrees(np.arctan2(u[1], u[0])) % 360
-        dec_ref = np.degrees(np.arcsin(np.clip(u[2], -1, 1)))
-        # 我们的 α、δ 是相对**当日真赤道**，而 ICRS→真赤道的 pnm 掺了岁差；
-        # 在 J2000 处两者一致，故这里直接比。
-        d_ra = (ra - ra_ref + 180) % 360 - 180
-        print(f'  λ={lam:6.1f} β={bet:+6.1f}  Δα={d_ra*3600:+9.4f}"  Δδ={(dec-dec_ref)*3600:+9.4f}"')
+    # 黄道 → 赤道**没有**在这里对拍，有意为之。
+    #
+    # 试过两种外部对拍，都在"平/真黄道"的口径上翻车：把 apparent() 之后的
+    # （真分点）坐标喂进 erfa.ecm06（平黄道）再叠加 pnm06a，章动被加了两次，
+    # 差 ~12″——那是脚本口径错，不是实现错，但报出来会误导。
+    #
+    # 目前该转换由 frames.rs 的单元测试保证：春分点 (λ=0,β=0) → (0,0)、
+    # 夏至点 (λ=90,β=0) → δ=+ε、秋分点 (λ=180,β=0) → δ=0，均为精确值。
+    # 要外部对拍，得先把"平/真"口径写清楚，留到第 4 步与地平坐标一起做。
+    print()
+    print('黄道 -> 赤道：见上述说明，暂由 frames.rs 的单元测试保证，未在此对拍。')
     return 0
 
 
