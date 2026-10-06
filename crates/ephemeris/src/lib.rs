@@ -29,6 +29,7 @@
 //! 数字不在这里手抄——手抄必然漂移，这个仓库已经漂过好几次。
 #![doc = include_str!("../../../docs/accuracy.md")]
 
+pub mod eclipse;
 pub mod frames;
 pub mod moon;
 pub mod observer;
@@ -60,7 +61,8 @@ pub use frames::{
 pub use angle::R2D;
 pub use observer::{gast, gmst, Atmosphere, Horizontal, Observer};
 pub use moon::{
-    libration, moon_apparent_longitude, moon_geocentric, new_moon, new_moon_index_near, Libration,
+    full_moon, libration, moon_apparent_longitude, moon_geocentric, new_moon,
+    new_moon_index_near, Libration,
 };
 pub use sun::{
     sun_apparent_longitude, sun_distance_au, sun_geometric_longitude,

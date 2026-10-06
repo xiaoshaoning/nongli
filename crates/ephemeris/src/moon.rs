@@ -271,10 +271,27 @@ pub fn moon_apparent_longitude(t: Instant) -> f64 {
     moon_geocentric(t).apparent(t).lon_deg
 }
 
-/// 第 `k` 次朔 (日月地心视黄经相等的时刻)。
+/// 第 `k` 次朔（日月地心视黄经相等）。
 ///
 /// `k = 0` 对应 2000-01-06 附近；`k` 每 +1 前进一个朔望月。
 pub fn new_moon(k: i64) -> Instant {
+    syzygy(k, 0.0)
+}
+
+/// 第 `k` 次望（日月地心视黄经相差 180°）。
+///
+/// 与 [`new_moon`] 是**同一个方程**，只是目标差 180°——所以共用下面的求根，
+/// 不另写一套。日食判在朔、月食判在望，两者都要用到。
+pub fn full_moon(k: i64) -> Instant {
+    syzygy(k, 180.0)
+}
+
+/// 朔望的一般式：解 `λ_moon − λ_sun_apparent = target`（度）。
+///
+/// 这里**故意不用**视黄经：条件是日月视黄经之差，而章动 Δψ 对两者是同一个量、
+/// 作差时精确抵消。少算两遍 IAU 2000A 章动，根一模一样。
+/// 太阳的周年光行差**不能**省——它只作用于太阳。
+fn syzygy(k: i64, target_deg: f64) -> Instant {
     let kf = k as f64;
     let t = kf / 1236.85;
     let jde = EPOCH_NEW_MOON_JDE
@@ -282,15 +299,15 @@ pub fn new_moon(k: i64) -> Instant {
         + 0.00015437 * t * t
         - 0.000000150 * t * t * t
         + 0.00000000073 * t * t * t * t;
-    // 这里**故意不用**视黄经：朔的条件是日月视黄经相等，而章动 Δψ 对两者是同一个量、
-    // 作差时精确抵消。少算两遍 IAU 2000A 章动，根一模一样。
-    // 太阳的周年光行差**不能**省——它只作用于太阳。
+    // 望的初值要从朔挪半个朔望月，否则牛顿会收敛回同一个朔
+    let jde = jde + SYNODIC_MONTH_DAYS * target_deg / 360.0;
     let f = |x: f64| {
         let i = Instant::from_tt(x);
         norm180(
             moon_geocentric(i).lon_deg
                 - sun_geometric_longitude(i)
-                - crate::sun::sun_aberration_deg(i),
+                - crate::sun::sun_aberration_deg(i)
+                - target_deg,
         )
     };
     Instant::from_tt(newton(jde, f, 0.05, 2.0))

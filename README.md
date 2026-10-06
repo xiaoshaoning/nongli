@@ -187,6 +187,7 @@ python tools/truthcheck.py   # 对 JPL 真值验太阳与月球（需 kernels/de
 python tools/spec_check.py   # §5.2 的 1 s 判据
 python tools/gen_accuracy.py # 重新生成 docs/accuracy.md（精度数字的唯一来源）
 python tools/doccheck.py     # 查文档与代码的脱节（死路径、数字漂移）
+python tools/eclipsecheck.py # 日食/月食对 NASA《五千年日月食目录》
 python tools/suncheck.py     # 太阳对 astropy（可看长跨度上两个模型怎么分离）
 python tools/mooncheck.py    # 月球 λ/β/Δ 对 erfa.moon98
 python tools/framecheck.py   # 章动/黄赤交角 对 ERFA 逐点比对
@@ -241,12 +242,14 @@ crates/ephemeris/     通用星历（零依赖，不知道任何农历概念）
   src/sun.rs          VSOP87D 地球级数、太阳地心视黄经
   src/moon.rs         ELP2000-82B 完整级数 —— 理论之"缝"
   src/frames.rs       Ecliptic/Equatorial 值类型、岁差、黄赤交角、章动、黄道→赤道
+  src/eclipse.rs      日食/月食的**是否发生**与类型（地心几何，不做当地见食）
   src/observer.rs     恒星时、站心视差、大气折射、地平坐标
   src/angle.rs        角度归化、角度-时刻求根
   src/vsop87_tables.rs / elp2000_tables.rs     自动生成的级数系数
   src/nutation_tables.rs / frames_tables.rs / ecliptic_frame_tables.rs
-  examples/{dt_dump,sun_check,moon_check,frame_check,observer_check,truth_check}.rs
-                      供 tools/ 核对的输出源（truth_check 对 JPL 真值）
+  examples/{dt_dump,sun_check,moon_check,frame_check,observer_check,truth_check,eclipse_check}.rs
+                      供 tools/ 核对的输出源（truth_check 对 JPL 真值、
+                      eclipse_check 对 NASA 食典）
 crates/moon/          月相与月球位置 app
   src/lib.rs          相位角、照亮比例、月龄、视直径、亮边方位、出没中天
   src/render.rs       把月相画成字符图形（晨昏线椭圆，不含纹理）
