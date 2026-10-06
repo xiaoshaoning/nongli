@@ -34,11 +34,24 @@ JD 2414864.5 – 2471184.5）。
 两侧用**同一套 ΔT**，所以量到的是模型/理论的误差——正是 §5.2 所指
 （ΔT 自身的不确定度见 `README.md` 的"适用范围"一节）。判据 ≤1 s，均已达标。
 
+## 日月食（对 NASA《五千年日月食目录》，1901–2100）
+
+| | 目录 | 配对 | 漏 | 类型不符 |
+|---|---|---|---|---|
+| 日食（中心食/偏食） | 452 | 452 | 0 | 6 |
+| 月食（半影/偏/全） | 457 | 451 | 6 | 13 |
+
+日食的**日期全中**（多出的两次是 1900 年，在目录范围之外）。所有类型差异都是
+同一类原因：本实现用的是**纯几何**的本影/半影，没有按地球大气把它放大 ~2%
+（Danjon）——那正好是"擦边"那几次的偏/全/半影分类翻转。要不要补那个经验改正
+是个取舍，见 `crates/ephemeris/src/eclipse.rs` 与 `third_party/eclipse-catalog/README.md`。
+
 ## 复现
 
 ```bash
 python tools/truthcheck.py    # 位置（对 JPL 真值）
 python tools/spec_check.py    # §5.2 的 1 s 判据
+python tools/eclipsecheck.py  # 日月食（对 NASA 食典）
 python tools/gen_accuracy.py  # 重新生成本文件
 ```
 
@@ -54,4 +67,8 @@ sun_dist_med_abs=0.76
 spec_new_moon_max=0.221
 spec_term_max=0.604
 builtin_moon_med_abs=20.397
+eclipse_solar_missing=0
+eclipse_solar_wrong=6
+eclipse_lunar_missing=6
+eclipse_lunar_wrong=13
 -->

@@ -111,9 +111,12 @@ def main():
             continue
         s = read(d)
         for key, v in tracked.items():
-            # 生成值本身在别处出现 = 手抄了确切数字
-            if f'{v:g}' in s:
-                bad.append(f'{d}: 出现了确切数字 {v:g}（{key}）——'
+            # 生成值本身在别处出现 = 手抄了确切数字。
+            # **只查带小数点的**：整数计数（0、6、13…）在散文里到处都是，
+            # 拿它们做负向检查只会报一堆假阳性；而"被抄走"的从来是那些小数。
+            text = f'{v:g}'
+            if '.' in text and text in s:
+                bad.append(f'{d}: 出现了确切数字 {text}（{key}）——'
                            f'只写量级并链到 docs/accuracy.md')
 
     if bad:

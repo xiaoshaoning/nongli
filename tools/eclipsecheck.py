@@ -10,6 +10,9 @@
    每一个朔/望的判断。
 3. 按**日期**配对，比较类型。
 
+统计量同时供 `docs/accuracy.md` 的"日月食"一节（经由 `tools/gen_accuracy.py`），
+所以那些数字不手抄。
+
 判据是"日期与类型都对得上"。类型里日食只到**中心食/偏食**这一层：
 全食/环食/全环食的区分取决于观测者站在食带的哪一段，目录给的是"最大食点处"
 的分类，本实现不追那一层（见 `crates/ephemeris/src/eclipse.rs` 的说明）。
@@ -66,10 +69,14 @@ def stats(fn):
         s)}
 
 
-def main():
+def measure(verbose=False):
+    """跑一遍全部比对，返回统计量。目录不存在时返回 None。
+
+    只算不印（`verbose` 时印解析自校验那些行）——`tools/gen_accuracy.py`
+    复用本函数生成 `docs/accuracy.md`。
+    """
     if not os.path.isdir(CAT):
-        print(f'缺少 {CAT} —— 跳过。')
-        return 0
+        return None
 
     # ---- 1. 解析目录，并用页面自己的统计表校验 ----
     cat_s, cat_l = {}, {}
@@ -149,10 +156,18 @@ def main():
             print('   ', b)
         if len(bad) > 12:
             print(f'    …还有 {len(bad) - 12} 条')
-        return len(cat), hit, miss, extra, wrong
+        return {'catalog': len(cat), 'matched': hit, 'missing': miss,
+                'extra': extra, 'wrong': wrong}
 
-    cmp(cat_s, our_s, '日食（中心食 C / 偏食 P）')
-    cmp(cat_l, our_l, '月食（N 半影 / P 偏 / T 全）')
+    return {'solar': cmp(cat_s, our_s, '日食（中心食 C / 偏食 P）'),
+            'lunar': cmp(cat_l, our_l, '月食（N 半影 / P 偏 / T 全）')}
+
+
+def main():
+    m = measure(verbose=True)
+    if m is None:
+        print(f'缺少 {CAT} —— 跳过。')
+        return 0
     return 0
 
 

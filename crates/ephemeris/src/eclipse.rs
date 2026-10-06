@@ -77,6 +77,26 @@ pub struct SolarEclipse {
     pub axis_distance_km: f64,
 }
 
+/// 三分搜索：在 `[lo, hi]` 上找 `f` 的极小点。**假定单峰**——两个调用点都只在
+/// 朔/望前后 ±0.5 天内找，那段确实只有一个极小。
+///
+/// 收敛判据给的是**时刻**（天）而不是函数值：外面只关心"最大食在何时"，而它同时
+/// 决定日期与分类。写死迭代次数会让精度变成一个看不见的东西（先前这里写的是
+/// `for _ in 0..60`，既没说收敛到什么，也比需要的多跑了三分之一）。
+fn minimize(f: impl Fn(f64) -> f64, mut lo: f64, mut hi: f64) -> f64 {
+    /// 1e-7 天 ≈ 8.6 ms —— 远细于需要的（目录给的时刻是分钟级，分类只在乎远近）。
+    const TOL_DAYS: f64 = 1e-7;
+    while hi - lo > TOL_DAYS {
+        let (a, b) = (lo + (hi - lo) / 3.0, hi - (hi - lo) / 3.0);
+        if f(a) < f(b) {
+            hi = b;
+        } else {
+            lo = a;
+        }
+    }
+    0.5 * (lo + hi)
+}
+
 /// 黄道球坐标 (经度°, 纬度°, 距离 km) → 直角坐标 km，当日平黄道分点系。
 fn to_xyz(lon_deg: f64, lat_deg: f64, r_km: f64) -> [f64; 3] {
     let (l, b) = (lon_deg * D2R, lat_deg * D2R);
@@ -108,17 +128,9 @@ pub fn lunar_eclipse_near(t: Instant) -> Option<LunarEclipse> {
         let dot = (u[0] * anti[0] + u[1] * anti[1] + u[2] * anti[2]).clamp(-1.0, 1.0);
         (dot.acos(), m.distance_km, d_sun)
     };
-    let (mut lo, mut hi) = (t.tt_jd() - 0.5, t.tt_jd() + 0.5);
-    for _ in 0..60 {
-        let (a, b) = (lo + (hi - lo) / 3.0, hi - (hi - lo) / 3.0);
-        if sep(a).0 < sep(b).0 {
-            hi = b;
-        } else {
-            lo = a;
-        }
-    }
-    let (ang, d_moon, d_sun) = sep(0.5 * (lo + hi));
-    let greatest = Instant::from_tt(0.5 * (lo + hi));
+    let jd = minimize(|x| sep(x).0, t.tt_jd() - 0.5, t.tt_jd() + 0.5);
+    let (ang, d_moon, d_sun) = sep(jd);
+    let greatest = Instant::from_tt(jd);
 
     // 地影在本影/半影处的线性半径（标准锥几何，纯几何值，未放大）
     let r_umbra = R_EARTH_KM - d_moon * (R_SUN_KM - R_EARTH_KM) / d_sun;
@@ -164,16 +176,7 @@ pub fn solar_eclipse_near(t: Instant) -> Option<SolarEclipse> {
         let r_pen = R_MOON_KM + t.abs() * (R_SUN_KM + R_MOON_KM) / (sun_distance_au(i) * AU_KM);
         (dist, r_pen)
     };
-    let (mut lo, mut hi) = (t.tt_jd() - 0.5, t.tt_jd() + 0.5);
-    for _ in 0..60 {
-        let (a, b) = (lo + (hi - lo) / 3.0, hi - (hi - lo) / 3.0);
-        if axis(a).0 < axis(b).0 {
-            hi = b;
-        } else {
-            lo = a;
-        }
-    }
-    let jd = 0.5 * (lo + hi);
+    let jd = minimize(|x| axis(x).0, t.tt_jd() - 0.5, t.tt_jd() + 0.5);
     let (dist, r_pen) = axis(jd);
     if dist > R_EARTH_KM + r_pen {
         return None;
@@ -197,10 +200,12 @@ mod tests {
     /// 对 **NASA《五千年日月食目录》** 定死的几个历元。
     ///
     /// 真值由 `tools/eclipsecheck.py` 那套解析给出后写死（测试不该依赖把 HTML
-    /// 解析一遍）。全量比对见那个工具：1901–2100 的 **452 次日食日期全中**、
-    /// 6 次中心/偏判反；**457 次月食配上 451 次**、13 次类型判反。所有差异都是
-    /// 同一类——本实现用的是**纯几何**的本影/半影，没有按地球大气放大 ~2%
-    /// （Danjon）。那正是"擦边"那几次偏/全/半影分类翻转的原因。
+    /// 解析一遍）。**全量比对的数字见 `docs/accuracy.md` 的"日月食"一节**
+    /// （由 `tools/gen_accuracy.py` 生成，不在这里手抄）。
+    ///
+    /// 那里的结论是：日食的日期全中，所有类型差异都来自同一件事——本实现用的是
+    /// **纯几何**的本影/半影，没有按地球大气放大 ~2%（Danjon），而那正是"擦边"
+    /// 那几次偏/全/半影分类翻转的原因。
     #[test]
     fn matches_nasa_catalog_samples() {
         // (朔/望附近的 JD, 目录日期, 期望类型)
