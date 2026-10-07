@@ -6,8 +6,12 @@
 //! moon --lat 51.5 --lon -0.13 --alt 11  指定地点
 //! moon --utc 2026-02-17T12:00:00        按 UTC 解释时间
 //! moon --days 30                        连续 30 天的月相表
+//! moon --eclipses 365                   未来一年内的日食与月食
 //! ```
 
+use ephemeris::eclipse::{
+    next_lunar_eclipse, next_solar_eclipse, LunarEclipseKind, SolarEclipseKind,
+};
 use ephemeris::{Atmosphere, Calendar, DateTime, Instant, Observer};
 use moon::{observe, rise_set};
 
@@ -24,6 +28,7 @@ fn main() {
     let mut utc = false;
     let mut refraction = true;
     let mut days: Option<i64> = None;
+    let mut eclipses: Option<f64> = None;
     let mut when: Option<DateTime> = None;
 
     let mut i = 0;
@@ -49,6 +54,16 @@ fn main() {
             "--lon" => lon = num(&mut i),
             "--alt" => alt = num(&mut i),
             "--days" => days = Some(num(&mut i) as i64),
+            "--eclipses" => {
+                // 天数可省，默认一年
+                eclipses = Some(match args.get(i + 1).and_then(|s| s.parse::<f64>().ok()) {
+                    Some(d) => {
+                        i += 1;
+                        d
+                    }
+                    None => 365.0,
+                });
+            }
             x if x.starts_with("--") => {
                 eprintln!("未知选项: {x}");
                 std::process::exit(2);
@@ -99,7 +114,57 @@ fn main() {
         return;
     }
 
+    if let Some(d) = eclipses {
+        print_eclipses(t0, d);
+        return;
+    }
+
     print_moment(t0, &observer, atm);
+}
+
+/// 列出 `[t0, t0+days]` 内的日食与月食，按时间先后排。
+///
+/// 日食只到"中心食/偏食"这一层：全食/环食/全环食之分取决于观测者站在食带哪一段，
+/// 见 `crates/ephemeris/src/eclipse.rs`。
+fn print_eclipses(t0: Instant, days: f64) {
+    // 窗口固定在 t0，**不能**跟着 t 走：`next_*` 的 within_days 是从传入时刻起算的，
+    // 而循环里 t 在往前推，那样窗口就永远在前方、永远找得到下一个，停不下来。
+    let end = t0.tt_jd() + days;
+    let mut evs: Vec<(f64, String)> = Vec::new();
+    let mut t = t0;
+    while let Some(e) = next_solar_eclipse(t, days) {
+        if e.greatest.tt_jd() > end {
+            break;
+        }
+        let kind = match e.kind {
+            SolarEclipseKind::Central => "中心食（全/环/全环取决于观测地）",
+            SolarEclipseKind::Partial => "偏食",
+        };
+        evs.push((e.greatest.tt_jd(), format!("{:<7}{:<28}{}", "日食", kind, fmt_beijing(e.greatest))));
+        t = Instant::from_tt(e.greatest.tt_jd() + 1.0);
+    }
+    let mut t = t0;
+    while let Some(e) = next_lunar_eclipse(t, days) {
+        if e.greatest.tt_jd() > end {
+            break;
+        }
+        let kind = match e.kind {
+            LunarEclipseKind::Total => "全食",
+            LunarEclipseKind::Partial => "偏食",
+            LunarEclipseKind::Penumbral => "半影食",
+        };
+        evs.push((e.greatest.tt_jd(), format!("{:<7}{:<28}{}", "月食", kind, fmt_beijing(e.greatest))));
+        t = Instant::from_tt(e.greatest.tt_jd() + 1.0);
+    }
+    if evs.is_empty() {
+        println!("未来 {days:.0} 天内没有日食或月食。");
+        return;
+    }
+    evs.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+    println!("未来 {days:.0} 天内的日食与月食（北京时间）：");
+    for (_, line) in evs {
+        println!("  {line}");
+    }
 }
 
 fn print_moment(t: Instant, observer: &Observer, atm: Option<Atmosphere>) {
@@ -130,7 +195,7 @@ fn print_moment(t: Instant, observer: &Observer, atm: Option<Atmosphere>) {
     );
     println!(
         "天平动  月面经度 {:+.2}°  月面纬度 {:+.2}°",
-        p.libration.lon_deg, p.libration.lat_deg
+        m.libration.lon_deg, m.libration.lat_deg
     );
     for line in moon::render::render(p.phase_angle_deg, p.bright_limb_deg, 61) {
         println!("  {line}");

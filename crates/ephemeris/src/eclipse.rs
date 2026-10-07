@@ -192,6 +192,38 @@ pub fn solar_eclipse_near(t: Instant) -> Option<SolarEclipse> {
     })
 }
 
+/// 从 `after` 起、`within_days` 天内的下一次日食。
+///
+/// 日食只可能在朔发生，所以逐个朔去试；`k_range` 给出需要试的序号。
+pub fn next_solar_eclipse(after: Instant, within_days: f64) -> Option<SolarEclipse> {
+    k_range(after, within_days)
+        .filter_map(|k| solar_eclipse_near(crate::moon::new_moon(k)))
+        .find(|e| e.greatest.tt_jd() >= after.tt_jd())
+}
+
+/// 从 `after` 起、`within_days` 天内的下一次月食。
+///
+/// 月食只可能在望发生。
+pub fn next_lunar_eclipse(after: Instant, within_days: f64) -> Option<LunarEclipse> {
+    k_range(after, within_days)
+        .filter_map(|k| lunar_eclipse_near(crate::moon::full_moon(k)))
+        .find(|e| e.greatest.tt_jd() >= after.tt_jd())
+}
+
+/// 需要枚举的朔序号区间。
+///
+/// 朔在 `k` 上、望在同一个 `k` 的下半月，所以两个入口共用一份枚举；两端各留
+/// 一个大于半朔望月的余量（14.77 天），保证**落在窗口里的朔和望都在范围内**。
+fn k_range(after: Instant, within_days: f64) -> core::ops::RangeInclusive<i64> {
+    /// 余量，天。只要 > 半个朔望月即可。
+    const MARGIN_DAYS: f64 = 20.0;
+    let k0 = crate::moon::new_moon_index_near(Instant::from_tt(after.tt_jd() - MARGIN_DAYS));
+    let k1 = crate::moon::new_moon_index_near(Instant::from_tt(
+        after.tt_jd() + within_days + MARGIN_DAYS,
+    ));
+    k0..=k1
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

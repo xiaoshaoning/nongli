@@ -254,6 +254,43 @@ impl core::fmt::Display for LunarDate {
 
 #[cfg(test)]
 mod tests {
+
+    /// 三伏：规则的不变量跨 400 年都成立，另对通行历书定死两个年份。
+    ///
+    /// 其中"初伏必须落在 7 月"这条看着朴素，却正是**抓过真 bug 的一条**：
+    /// 一开始节气序号推错，算出来的是 2005 年的日期，别的检查都不响。
+    #[test]
+    fn sanfu_invariants_and_known_years() {
+        let (y2024, m2024, d2024) = ymd_from_jdn(sanfu(2024).first_jdn, Calendar::Gregorian);
+        assert_eq!((y2024, m2024, d2024), (2024, 7, 15));
+        let (y2025, m2025, d2025) = ymd_from_jdn(sanfu(2025).last_jdn, Calendar::Gregorian);
+        assert_eq!((y2025, m2025, d2025), (2025, 8, 9));
+
+        for year in 1800..2200 {
+            let s = sanfu(year);
+            // 三个起点都必须是庚日（第 3/4/1 个庚日由 sanfu 内部保证）
+            for (name, j) in [("初伏", s.first_jdn), ("中伏", s.middle_jdn), ("末伏", s.last_jdn)] {
+                assert_eq!(
+                    (j - GANZHI_DAY_EPOCH_JDN).rem_euclid(10),
+                    GENG,
+                    "{year} {name} 必须是庚日"
+                );
+            }
+            assert_eq!(s.middle_jdn - s.first_jdn, 10, "{year} 初伏应为 10 天");
+            assert!(
+                matches!(s.middle_days(), 10 | 20),
+                "{year} 中伏 {} 天",
+                s.middle_days()
+            );
+            for j in [s.first_jdn, s.end_jdn() - 1] {
+                let (_, m, _) = ymd_from_jdn(j, Calendar::Gregorian);
+                assert!(
+                    m == 7 || m == 8,
+                    "{year}: 三伏在 {m} 月——年份算错了"
+                );
+            }
+        }
+    }
     use super::*;
 
     fn lunar(y: i64, m: u32, d: u32) -> LunarDate {
@@ -503,5 +540,77 @@ mod tests {
             assert!(cur.day <= 30, "j={j} cur={cur:?}");
             prev = cur;
         }
+    }
+}
+
+// ---------------------------------------------------------------- 三伏
+
+/// 三伏的起讫（都是**北京时间的日编号**）。
+///
+/// 规则（中国历法惯例，全部由已验过的量导出）：
+///
+/// * **初伏**：夏至后的第 **3** 个庚日起，10 天；
+/// * **中伏**：夏至后的第 **4** 个庚日起，到末伏前一日止——所以是 10 或 20 天；
+/// * **末伏**：立秋后的第 **1** 个庚日起，10 天。
+///
+/// "庚日"指干支纪日中天干为庚的那一天。第 3/4 个庚日**把夏至当天算作第 1 个**
+/// （若当天正是庚日）——这是历书的通行算法，也是"初伏不会早于夏至后第 20 天"
+/// 这句话的来源。
+///
+/// 注意中伏的长短：它由"夏至后第 4 个庚日"与"立秋后第 1 个庚日"之间隔几个庚日
+/// 决定，所以有 10 天与 20 天两种。这不是特例，是规则的直接结果。
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Sanfu {
+    /// 初伏起始日（日编号）。
+    pub first_jdn: i64,
+    /// 中伏起始日。
+    pub middle_jdn: i64,
+    /// 末伏起始日。
+    pub last_jdn: i64,
+}
+
+impl Sanfu {
+    /// 中伏的天数（10 或 20）。
+    pub fn middle_days(&self) -> i64 {
+        self.last_jdn - self.middle_jdn
+    }
+
+    /// 出伏日（末伏最后一天的**次日**）。
+    pub fn end_jdn(&self) -> i64 {
+        self.last_jdn + 10
+    }
+}
+
+/// 天干中"庚"的序号（甲=0）。
+const GENG: i64 = 6;
+
+/// 从 `from`（含）起第 `n` 个庚日的日编号。
+///
+/// 干支纪日的循环序号是 `jdn − GANZHI_DAY_EPOCH_JDN`（与 [`Calendar::ganzhi_day`] 同源），
+/// 天干即该序号 mod 10。
+fn nth_geng_jdn(from: i64, n: i64) -> i64 {
+    let off = (GENG - (from - GANZHI_DAY_EPOCH_JDN)).rem_euclid(10);
+    from + off + 10 * (n - 1)
+}
+
+/// 公历 `year` 年的三伏。
+///
+/// 夏至与立秋都由 [`solar_term`] 给出（太阳视黄经 90° 与 135°），再落到北京时间的日。
+pub fn sanfu(year: i64) -> Sanfu {
+    // 节气序号 j 满足视黄经 = 15j (mod 360)：夏至 90° → j ≡ 6，立秋 135° → j ≡ 9。
+    // 序号本身随年份线性增长（每年 24 个），但起点不必自己推：拿 6 月 21 日附近
+    // 求"最近的节气序号"，再在 ±2 内挑出 ≡6 的那个就够稳。
+    let near_solstice = jd_from_jdn(jdn_from_ymd(year, 6, 21, Calendar::Gregorian));
+    let j0 = crate::terms::solar_term_index_near(Instant::from_tt(near_solstice));
+    let xiazhi_j = (j0 - 2..=j0 + 2)
+        .find(|k| k.rem_euclid(24) == 6)
+        .expect("±2 内必有且只有一个 ≡6 (mod 24)");
+    // 立秋比夏至晚 3 个节气（90° → 135°），序号直接 +3，不必再求一次根
+    let xiazhi = beijing_jdn(solar_term(xiazhi_j));
+    let liqiu = beijing_jdn(solar_term(xiazhi_j + 3));
+    Sanfu {
+        first_jdn: nth_geng_jdn(xiazhi, 3),
+        middle_jdn: nth_geng_jdn(xiazhi, 4),
+        last_jdn: nth_geng_jdn(liqiu, 1),
     }
 }

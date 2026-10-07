@@ -16,7 +16,7 @@
 //! 且距离是**地心**距离。输出的方位角自**北**起向东为正。
 
 use crate::angle::{norm360, D2R, R2D};
-use crate::frames::{mean_obliquity, nutation, Equatorial};
+use crate::frames::{mean_obliquity, nutation, true_obliquity, Equatorial};
 use crate::time::{Instant, J2000};
 
 /// WGS84 椭球：长半轴 km 与扁率。
@@ -155,6 +155,35 @@ impl Equatorial {
         atmosphere: Option<Atmosphere>,
     ) -> Horizontal {
         self.horizontal_at(gast(t), observer, atmosphere)
+    }
+
+    /// 站心**黄道**方向的经纬度（度），**当日平黄道平春分点**系。
+    ///
+    /// 与 [`Equatorial::horizontal_at`] 同源——都先做站心视差——只是终点是黄道而不是
+    /// 地平。给月球天平动用：观测者不在地心，看月面的角度与从地心看最多差 ~1°
+    /// （周日天平动）。
+    ///
+    /// 返回的是**平**黄道（与 [`crate::frames::Ecliptic`] 同口径）：`Equatorial` 在
+    /// 真赤道真分点里，所以要先按真黄赤交角转到黄道、再减掉黄经章动 Δψ 回到平分点
+    /// ——正好是 [`crate::frames::Ecliptic::equatorial`] 的逆。
+    ///
+    /// **不含**周年光行差之外的观测效应，也不含大气折射：天平动是几何方向。
+    /// （光行时与光行差已经含在传进来的 `Equatorial` 里了。）
+    pub(crate) fn topocentric_ecliptic(self, t: Instant, observer: &Observer) -> (f64, f64) {
+        let obs = observer.geocentric_km(gast(t));
+        let v = [
+            self.distance_km * (self.dec_deg * D2R).cos() * (self.ra_deg * D2R).cos() - obs[0],
+            self.distance_km * (self.dec_deg * D2R).cos() * (self.ra_deg * D2R).sin() - obs[1],
+            self.distance_km * (self.dec_deg * D2R).sin() - obs[2],
+        ];
+        // 真赤道 → 真分点下的黄道：绕 x 轴转 −ε_true
+        let eps = true_obliquity(t) * D2R;
+        let (se, ce) = eps.sin_cos();
+        let y = v[1] * ce + v[2] * se;
+        let z = -v[1] * se + v[2] * ce;
+        let lon = norm360(y.atan2(v[0]) * R2D - nutation(t).dpsi_deg);
+        let lat = (z / (v[0] * v[0] + y * y + z * z).sqrt()).clamp(-1.0, 1.0).asin() * R2D;
+        (lon, lat)
     }
 
     /// 同上，但 GAST 由调用方给定。**不需要** `Instant`——GAST 之后的步骤都与时间无关。

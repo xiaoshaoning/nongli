@@ -54,16 +54,16 @@ pub struct MoonPhase {
     pub distance_km: f64,
     /// 视直径，度。
     pub angular_diameter_deg: f64,
-    /// 月面中心的月面经纬度（天平动）。
-    ///
-    /// 与 [`render()`](crate::render::render) 无关——只画晨昏线用不到它；它决定的是**月面纹理**
-    /// 该摆在哪。见 `docs/plan.md` 第 6 步末尾的说明。
-    pub libration: Libration,
 }
 
 /// 月球的一次完整观测：位置 + 相位。
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct MoonObservation {
+    /// 月球光学天平动（**站心**，含周日天平动）的月面经纬度。
+    ///
+    /// 放在这里而不是 [`MoonPhase`] 里：天平动的定义是"从**观测者**看到的月面中心
+    /// 在哪"，所以它属于知道观测者的那个结构。**不含**物理天平动（±0.04°）。
+    pub libration: Libration,
     /// 地心视赤道坐标。
     pub equatorial: Equatorial,
     /// 站心地平坐标（`atmosphere` 为 `Some` 时是含折射的**视**高度）。
@@ -141,7 +141,6 @@ pub fn phase(
         bright_limb_deg: chi.rem_euclid(core::f64::consts::TAU) * R2D,
         distance_km: d,
         angular_diameter_deg: 2.0 * (MOON_RADIUS_KM / d).asin() * R2D,
-        libration: libration(t),
     }
 }
 
@@ -173,6 +172,7 @@ pub fn observe(t: Instant, observer: &Observer, atmosphere: Option<Atmosphere>) 
     MoonObservation {
         equatorial: eq,
         horizontal: eq.horizontal(t, observer, atmosphere),
+        libration: libration(t, observer),
         // 相位用**几何**量：月球取平黄道（`geo`），太阳取几何黄经。
         // 两者同为当日的平分点、都不含光行差，三角形才是对的。
         phase: phase(

@@ -99,6 +99,24 @@ fn print_year(year: i64) {
     }
 }
 
+/// 三伏。规则见 `nongli::sanfu` 的文档。
+fn print_sanfu(year: i64) {
+    let s = nongli::sanfu(year);
+    let d = |j: i64| {
+        let (yy, mm, dd) = ymd_from_jdn(j, Calendar::Gregorian);
+        format!("{yy:04}-{mm:02}-{dd:02}")
+    };
+    println!("===== {year} 年三伏 =====");
+    println!("初伏  {} 起  10 天", d(s.first_jdn));
+    println!(
+        "中伏  {} 起  {} 天",
+        d(s.middle_jdn),
+        s.middle_days()
+    );
+    println!("末伏  {} 起  10 天", d(s.last_jdn));
+    println!("出伏  {}", d(s.end_jdn()));
+}
+
 fn print_sui(year: i64) {
     println!("===== 以 {year} 年冬至所在月为十一月的\"岁\" =====");
     let month11 = new_moon_on_or_before(winter_solstice_jdn(year));
@@ -151,6 +169,12 @@ fn main() {
                 print_sui(y);
                 return;
             }
+            "--sanfu" => {
+                i += 1;
+                let y: i64 = args.get(i).and_then(|s| s.parse().ok()).expect("需要年份");
+                print_sanfu(y);
+                return;
+            }
             "--terms" => {
                 i += 1;
                 let y: i64 = args.get(i).and_then(|s| s.parse().ok()).expect("需要年份");
@@ -195,6 +219,7 @@ const HELP: &str = "nongli —— 中国农历 (GB/T 33661-2017)
   nongli <公历日期>[T时刻] ...   换算农历（默认北京时间）
   nongli --year  <年>            打印全年公历/农历对照与节气
   nongli --sui   <年>            打印该岁各月与置闰
+  nongli --sanfu <年>            打印该年三伏
   nongli --terms <年>            打印全年二十四节气
 
 选项:

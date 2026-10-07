@@ -59,7 +59,7 @@ pub fn beijing_jdn(t: Instant) -> i64 {
     t.jdn_in_offset(BEIJING_OFFSET_HOURS)
 }
 
-pub use calendar::{new_moon_on_or_before, winter_solstice_jdn, LunarDate, NewMoon};
+pub use calendar::{new_moon_on_or_before, sanfu, winter_solstice_jdn, LunarDate, NewMoon, Sanfu};
 pub use names::{day_name, TERM_NAMES};
 // 这两个出现在本 crate 公开函数的签名里。调用方不该为了能写出参数类型而额外
 // 依赖 `ephemeris`；其余星历接口请直接用 `ephemeris`。

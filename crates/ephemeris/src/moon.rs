@@ -374,10 +374,19 @@ fn libration_from_direction(lon_deg: f64, lat_deg: f64, t: Instant) -> Libration
     }
 }
 
-/// 月球的光学天平动（地心）。
-pub fn libration(t: Instant) -> Libration {
-    let e = moon_geocentric(t);
-    libration_from_direction(e.lon_deg, e.lat_deg, t)
+/// 月球的光学天平动，**站心**（含周日天平动）。
+///
+/// 天平动的定义是"从观测者看到的月面中心在哪"，所以**必须给观测者**：观测者不在地心，
+/// 看月面的角度与从地心看最多差 ~1°（周日天平动，随观测者经度改变）。地心那个极限
+/// 情况由（私有的）`libration_from_direction` 直接表达，测试用它做 Meeus 例 53.a
+/// 的回归。
+///
+/// 站心方向由（crate 内的）`Equatorial::topocentric_ecliptic` 给出——它做的是
+/// 站心视差，与地平坐标同一个来源。
+pub fn libration(t: Instant, observer: &crate::observer::Observer) -> Libration {
+    let eq = moon_geocentric(t).apparent(t).equatorial(t);
+    let (lon, lat) = eq.topocentric_ecliptic(t, observer);
+    libration_from_direction(lon, lat, t)
 }
 
 /// 离 `t` 最近的一次朔的序号（允许 ±1 的误差）。
@@ -434,14 +443,49 @@ mod tests {
     ///
     /// 这里用的是**平**黄经（不加章动）——见 `libration_from_direction` 的说明。
     ///
-    /// 容差 0.008° 而不是 0.002°：`libration` 吃的是 `moon_geocentric` 的**视**方向
+    /// 容差 0.008° 而不是 0.002°：这里吃的是 `moon_geocentric` 的**视**方向
     /// （含 ~20″ 周年光行差），而 Meeus 53.a 给的是**几何**方向。20″ 折合 0.0056°，
     /// 在月面上约 37 km，显示上无所谓，但正好超出原来那个容差。
+    ///
+    /// 直接测 `libration_from_direction` 的**地心**输入：那是 Meeus 那个例子的口径，
+    /// 也让这个内部函数有了消费者（否则它只是为"周日天平动"留着的死代码）。
     #[test]
     fn meeus_example_53a() {
-        let l = libration(Instant::from_tt(2448724.5));
+        let t = Instant::from_tt(2448724.5);
+        let e = moon_geocentric(t);
+        let l = libration_from_direction(e.lon_deg, e.lat_deg, t);
         assert!((l.lon_deg - -1.206).abs() < 0.008, "l′={}", l.lon_deg);
         assert!((l.lat_deg - 4.194).abs() < 0.008, "b′={}", l.lat_deg);
+    }
+
+    /// 地心天平动（极限情况）。
+    ///
+    /// 教科书的 ±7.9°/±6.7° 说的就是这个；而 `libration` 给的是**站心**的，
+    /// 含着周日天平动，幅度更大。
+    fn geocentric_libration(t: Instant) -> Libration {
+        let e = moon_geocentric(t);
+        libration_from_direction(e.lon_deg, e.lat_deg, t)
+    }
+
+    /// 周日天平动：站心与地心之差。
+    ///
+    /// 这是"观测者不在地心"带来的那一部分，量级 ~1°（地球半径 6371 km 对月地距离
+    /// 384400 km 张的角 ≈ 0.95°）。它必须**随观测者改变符号**——东边的观测者看到
+    /// 月面偏一侧、西边的偏另一侧。地心天平动对所有人都一样，所以这一条正好把
+    /// 两者分开。
+    #[test]
+    fn diurnal_libration_is_about_a_degree_and_flips_with_the_observer() {
+        let t = Instant::from_tt(2451545.0 + 40.0);
+        let geo = geocentric_libration(t);
+        let east = crate::observer::Observer { lat_deg: 0.0, lon_deg: 90.0, height_m: 0.0 };
+        let west = crate::observer::Observer { lat_deg: 0.0, lon_deg: -90.0, height_m: 0.0 };
+        let de = libration(t, &east).lon_deg - geo.lon_deg;
+        let dw = libration(t, &west).lon_deg - geo.lon_deg;
+        assert!(
+            (0.2..1.3).contains(&de.abs()) && (0.2..1.3).contains(&dw.abs()),
+            "周日天平动量级不对：东 {de} 西 {dw}"
+        );
+        assert!(de * dw < 0.0, "两侧观测者的偏移应当反号：东 {de} 西 {dw}");
     }
 
     /// 天平动的**自洽**检查，不依赖外部参考值：
@@ -457,7 +501,7 @@ mod tests {
         let mut n = 0;
         for i in 0..(60 * 24) {
             let t = Instant::from_tt(2451545.0 + i as f64 / 24.0);
-            let l = libration(t);
+            let l = geocentric_libration(t);
             assert!(l.lon_deg.abs() < 9.0, "l={}", l.lon_deg);
             assert!(l.lat_deg.abs() < 8.0, "b={}", l.lat_deg);
             lo_lon = lo_lon.max(l.lon_deg.abs());
@@ -477,7 +521,7 @@ mod tests {
         let mut both_small = 0;
         for i in 0..(60 * 24) {
             let t = Instant::from_tt(2451545.0 + i as f64 / 24.0);
-            let l = libration(t);
+            let l = geocentric_libration(t);
             if l.lon_deg.abs() < 0.05 && l.lat_deg.abs() < 0.05 {
                 both_small += 1;
             }
