@@ -1,5 +1,10 @@
 # nongli —— 中国农历编算 (GB/T 33661-2017)
 
+作者：**Xiao, Shaoning** &lt;xiaoshaoning@foxmail.com&gt;　·　许可：**Apache-2.0**（见 `LICENSE`、`NOTICE`；
+第三方内容的署名见 `THIRD_PARTY.md`）
+
+标准原文不在本仓库（见 `docs/compliance.md` 与 `.gitignore`）。
+
 按 **GB/T 33661-2017《农历的编算和颁行》** 用 Rust 实现的农历计算库与命令行工具。
 给定普通日历（公历）的任意日期时刻，算出对应的农历表示：农历年/月/日名称、干支纪年、
 生肖纪年、干支纪日、二十四节气、闰月。
